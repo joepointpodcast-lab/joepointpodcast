@@ -1,7 +1,7 @@
 // Joe Point Podcast — public website (single page app)
 import { SUPABASE_URL } from './config.js';
 import {
-  sb, e, md, excerpt, fmtDate, media, episodePlayer, icon, siteSocials, socialsHtml,
+  sb, e, md, excerpt, fmtDate, media, episodePlayer, embedHtml, icon, siteSocials, socialsHtml,
   POST_TYPES, applyTheme, resizeImage, upload, errMsg,
 } from './lib.js';
 
@@ -256,7 +256,8 @@ function postCard(p) {
   return `<article class="card post-card">
     ${p.image ? `<a href="/news/${e(p.slug)}" class="post-img" tabindex="-1" aria-hidden="true"><img src="${e(media(p.image))}" alt="" loading="lazy"></a>` : ''}
     <div class="card-body"><div class="meta"><span class="tag tag-${e(p.type)}">${e(POST_TYPES[p.type] || 'News')}</span><span>${fmtDate(p.published_at)}</span></div>
-      <h3><a href="/news/${e(p.slug)}">${e(p.title)}</a></h3><p>${e(excerpt(p.excerpt || p.body, 140))}</p></div></article>`;
+      <h3><a href="/news/${e(p.slug)}">${e(p.title)}</a></h3><p>${e(excerpt(p.excerpt || p.body, 140))}</p>
+      ${p.episode_id || p.link_url ? `<div class="meta meta-foot">${p.episode_id ? `<span>${icon('headphones')} Episode</span>` : ''}${p.link_url ? `<span>${icon('link')} Link</span>` : ''}</div>` : ''}</div></article>`;
 }
 
 function pager(page, total, per) {
@@ -508,7 +509,12 @@ async function viewNews(_, q) {
 async function viewPost(slug) {
   const { data: p } = await publishedPosts().eq('slug', slug).maybeSingle();
   if (!p) return notFound();
-  const { data: imgs } = await sb.from('post_images').select('*').eq('post_id', p.id).order('sort').order('id');
+  const [{ data: imgs }, epRes] = await Promise.all([
+    sb.from('post_images').select('*').eq('post_id', p.id).order('sort').order('id'),
+    p.episode_id ? publishedEpisodes('id,title,slug,number,cover').eq('id', p.episode_id).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
+  const ep = epRes.data;
+  const linkBlock = postLinks(p, ep);
   act(['✏️ Edit this post', `#/post/${p.id}`], ['➕ New news post', '#/post/new']);
   render(p.title, `
   <article><section class="page-hero"><div class="wrap narrow">
@@ -517,9 +523,31 @@ async function viewPost(slug) {
   <section class="section"><div class="wrap narrow">
     ${p.image ? `<img class="post-hero-img" src="${e(media(p.image))}" alt="">` : ''}
     <div class="prose">${md(p.body)}</div>
+    ${linkBlock}
     ${imgs?.length ? `<div class="gallery">${imgs.map((im) => `<figure><a href="${e(media(im.file))}" target="_blank" rel="noopener"><img src="${e(media(im.file))}" alt="${e(im.caption)}" loading="lazy"></a>${im.caption ? `<figcaption>${e(im.caption)}</figcaption>` : ''}</figure>`).join('')}</div>` : ''}
     <p class="mt"><a class="link-arrow" href="/news">← Back to news</a></p>
   </div></section></article>`, p.excerpt || p.body);
+}
+
+/** Buttons under a news post: related episode and/or an external link (Facebook, Instagram, YouTube…) */
+function postLinks(p, ep) {
+  const parts = [];
+  if (ep) {
+    parts.push(`<a class="post-ep" href="/episode/${e(ep.slug)}">
+      <span class="post-ep-cover">${ep.cover ? `<img src="${e(media(ep.cover))}" alt="">` : coverFallback(ep.number)}</span>
+      <span><small>🎧 Listen to the episode</small><strong>${e(ep.title)}</strong></span><span class="post-ep-go">${icon('play')}</span></a>`);
+  }
+  if (p.link_url) {
+    let host = '';
+    try { host = new URL(p.link_url).hostname.replace(/^www\./, ''); } catch { /* ignore */ }
+    const known = [['facebook', 'Facebook', 'facebook'], ['fb.', 'Facebook', 'facebook'], ['instagram', 'Instagram', 'instagram'], ['tiktok', 'TikTok', 'tiktok'],
+      ['youtu', 'YouTube', 'youtube'], ['spotify', 'Spotify', 'spotify'], ['apple', 'Apple Podcasts', 'apple'], ['x.com', 'X', 'x'], ['twitter', 'X', 'x'], ['linkedin', 'LinkedIn', 'linkedin']]
+      .find(([k]) => host.includes(k));
+    const label = p.link_label || (known ? `View on ${known[1]}` : `Open link (${host || 'website'})`);
+    const embed = /youtu|spotify|podcasts\.apple|soundcloud/.test(host) ? embedHtml(p.link_url) : '';
+    parts.push(`${embed}<p><a class="btn" href="${e(p.link_url)}" target="_blank" rel="noopener">${icon(known ? known[2] : 'link')} ${e(label)} ↗</a></p>`);
+  }
+  return parts.length ? `<div class="post-links">${parts.join('')}</div>` : '';
 }
 
 async function viewCommunity(_, q) {

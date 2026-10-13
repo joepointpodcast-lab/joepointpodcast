@@ -88,6 +88,12 @@ create table if not exists public.posts (
   created_at   timestamptz not null default now()
 );
 
+-- Links on news posts (episode and/or external page) — also added by update-news-links.sql
+alter table public.posts add column if not exists episode_id bigint references public.episodes(id) on delete set null;
+alter table public.posts add column if not exists link_url   text not null default '';
+alter table public.posts add column if not exists link_label text not null default '';
+alter table public.posts alter column status set default 'published';
+
 create table if not exists public.post_images (
   id      bigint generated always as identity primary key,
   post_id bigint not null references public.posts(id) on delete cascade,

@@ -195,7 +195,7 @@ function fImage(name, label, current, help = '', src = null) {
 }
 function fSelect(name, label, value, options, help = '', attrs = '') {
   return `<label class="field"><span>${e(label)}</span>${help ? `<small>${help}</small>` : ''}<select name="${e(name)}"${attrs}>
-    ${Object.entries(options).map(([v, l]) => `<option value="${e(v)}"${String(value) === String(v) ? ' selected' : ''}>${e(l)}</option>`).join('')}</select></label>`;
+    ${(Array.isArray(options) ? options : Object.entries(options)).map(([v, l]) => `<option value="${e(v)}"${String(value) === String(v) ? ' selected' : ''}>${e(l)}</option>`).join('')}</select></label>`;
 }
 
 /** Handle a file field: upload a new file, or mark for removal. Returns {value, trash[]} */
@@ -337,7 +337,7 @@ async function viewEpisode(id, main) {
         ${fText('published_at', 'Publish date', toLocalInput(r.published_at), { type: 'datetime-local', help: 'A date in the future = scheduled automatically.' })}
         <div class="row-2">${fText('number', 'Episode no.', r.number, { type: 'number' })}${fText('season', 'Season', r.season, { type: 'number' })}</div>
         ${fText('duration', 'Duration', r.duration, { placeholder: 'e.g. 52 min' })}
-        ${fSelect('category_id', 'Category', r.category_id ?? '', { '': '— none —', ...Object.fromEntries(cats.map((c) => [c.id, c.name])) })}
+        ${fSelect('category_id', 'Category', r.category_id ?? '', [['', '— none —'], ...cats.map((c) => [c.id, c.name])])}
         <small><a href="#/categories">Manage categories</a></small>
       </section>
       <section class="panel stack">${fImage('cover', 'Cover image', r.cover, 'Square works best (e.g. 1400×1400).')}</section>
@@ -494,17 +494,23 @@ async function viewPosts(_, main) {
 
 async function viewPost(id, main) {
   const isNew = id === 'new' || !id;
-  const [row, imgs] = await Promise.all([
+  const [row, imgs, eps] = await Promise.all([
     isNew ? null : sb.from('posts').select('*').eq('id', id).single().then(must),
     isNew ? [] : sb.from('post_images').select('*').eq('post_id', id).order('sort').order('id').then(must),
+    sb.from('episodes').select('id,title,number').order('published_at', { ascending: false }).then(must),
   ]);
-  const r = row || { type: 'nieuws', status: 'draft' };
+  const r = row || { type: 'nieuws', status: 'published' };   // news goes live straight away
   main.innerHTML = `
   <header class="page-head"><div><a class="back" href="#/posts">← News</a><h1>${isNew ? 'New post' : 'Edit post'}</h1></div>
     ${row?.status === 'published' ? `<a class="btn btn-ghost"  href="/news/${e(row.slug)}">View on site →</a>` : ''}</header>
   <form class="edit-grid" id="f">
     <div class="stack">
       <section class="panel stack">${fText('title', 'Title', r.title, { required: true })}${fArea('excerpt', 'Short intro', r.excerpt, { rows: 2 })}${fArea('body', 'Text', r.body, { rows: 14, md: true, help: MD_HELP })}</section>
+      <section class="panel stack"><h2>Link (optional)</h2>
+        ${fSelect('episode_id', 'Link to an episode', r.episode_id ?? '', [['', '— no episode —'], ...eps.map((ep) => [ep.id, (ep.number ? '#' + ep.number + ' ' : '') + ep.title])], 'Shows a "Listen to the episode" button under the post.')}
+        ${fText('link_url', 'Link to another page', r.link_url, { attrs: ' inputmode="url"', placeholder: 'https://www.facebook.com/…', help: 'For example a Facebook or Instagram post, a YouTube video or a Spotify episode. YouTube and Spotify links get a player.' })}
+        ${fText('link_label', 'Button text (optional)', r.link_label, { placeholder: 'e.g. See the photos on Facebook' })}
+      </section>
       <section class="panel stack"><h2>Photo gallery</h2>
         ${imgs.length ? `<div class="gallery-admin">${imgs.map((im) => `<div class="g-item"><img src="${e(media(im.file))}" alt=""><input name="cap_${im.id}" value="${e(im.caption)}" placeholder="Caption"><label class="check"><input type="checkbox" name="rm_img" value="${im.id}"> Remove</label></div>`).join('')}</div>` : ''}
         <label class="field"><span>Add photos</span><small>You can select several photos at once. They are resized automatically.</small><input type="file" name="gallery" accept="image/*" multiple></label>
@@ -513,8 +519,8 @@ async function viewPost(id, main) {
     <aside class="stack">
       <section class="panel stack">
         ${fSelect('type', 'Post type', r.type, POST_TYPES)}
-        ${fSelect('status', 'Status', r.status, { published: 'Live', draft: 'Draft' })}
-        ${fText('published_at', 'Publish date', toLocalInput(r.published_at), { type: 'datetime-local' })}
+        ${fSelect('status', 'Status', r.status, { published: 'Live (visible right away)', draft: 'Draft (only you can see it)' })}
+        ${fText('published_at', 'Publish date', toLocalInput(r.published_at), { type: 'datetime-local', help: 'Leave as is to publish now. A date in the future = scheduled.' })}
       </section>
       <section class="panel stack">${fImage('image', 'Main image', r.image)}</section>
       ${row ? `<section class="panel stack">${fText('slug', 'Web address', row.slug, { help: '/news/<b>…</b>' })}</section>` : ''}
@@ -532,7 +538,8 @@ async function viewPost(id, main) {
     const data = {
       title: v(fd, 'title'), slug: await uniqueSlug('posts', v(fd, 'slug') || v(fd, 'title'), row?.id),
       type: POST_TYPES[v(fd, 'type')] ? v(fd, 'type') : 'nieuws', excerpt: v(fd, 'excerpt'), body: v(fd, 'body'),
-      status: v(fd, 'status') === 'published' ? 'published' : 'draft', published_at: fromLocalInput(v(fd, 'published_at')), image: image.value,
+      status: v(fd, 'status') === 'draft' ? 'draft' : 'published', published_at: fromLocalInput(v(fd, 'published_at')), image: image.value,
+      episode_id: v(fd, 'episode_id') ? +v(fd, 'episode_id') : null, link_url: validUrl(v(fd, 'link_url')), link_label: v(fd, 'link_label'),
     };
     const saved = row
       ? must(await sb.from('posts').update(data).eq('id', row.id).select('id').single())
@@ -550,7 +557,7 @@ async function viewPost(id, main) {
       catch (err) { failed.push(`${f.name}: ${errMsg(err)}`); }
     }
     await trash(image.trash);
-    go(`#/post/${saved.id}`, failed.length ? ['error', 'Saved, but not all photos could be uploaded: ' + failed.join(' · ')] : ['ok', 'Post saved.']);
+    go(`#/post/${saved.id}`, failed.length ? ['error', 'Saved, but not all photos could be uploaded: ' + failed.join(' · ')] : ['ok', data.status === 'draft' ? 'Saved as draft — not visible on the site yet.' : (new Date(data.published_at) > new Date() ? 'Saved — it will go live on the publish date.' : 'Saved — the post is live on the site.')]);
   });
 }
 

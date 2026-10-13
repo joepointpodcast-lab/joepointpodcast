@@ -72,6 +72,13 @@ Draaide de site al in het Nederlands? Dan zijn er twee stappen nodig:
 1. **Bestanden bijwerken in GitHub**: ga naar je repository, klik op **Add file → Upload files** en sleep alles uit deze zip erin (de mappen `site`, `netlify`, `supabase` en de bestanden `netlify.toml` en `LEESMIJ.md`). Klik op **Commit changes**. In deze zip zit géén `config.js`, dus jouw ingevulde Supabase-gegevens blijven gewoon staan.
 2. **Database bijwerken**: open in Supabase de **SQL Editor**, plak de inhoud van `supabase/update-to-english.sql` en klik op **Run**. Daarmee worden de meldingen in de formulieren Engels, en worden de voorbeeldteksten Engels. Teksten die Lamin zelf al had aangepast, blijven zoals ze zijn.
 
+## Update: links bij nieuwsberichten
+
+Na het uploaden van deze versie één keer in Supabase → **SQL Editor** de inhoud van `supabase/update-news-links.sql` plakken en op **Run** klikken. Daarmee:
+- kunnen nieuwsberichten een link krijgen naar een aflevering en/of naar een andere pagina (Facebook, Instagram, YouTube…);
+- zijn nieuwe nieuwsberichten standaard meteen **Live**;
+- worden nieuwsberichten die per ongeluk als concept (draft) waren blijven staan, alsnog live gezet.
+
 ## Wat Lamin zelf kan (via /admin)
 
 - **Afleveringen**: titel, samenvatting, show notes, link naar Spotify/YouTube/Apple/SoundCloud (de speler verschijnt vanzelf), cover, gasten en categorie. Afleveringen kunnen ook ingepland worden.
