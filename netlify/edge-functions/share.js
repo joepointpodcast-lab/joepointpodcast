@@ -1,8 +1,8 @@
-// Mooie previews bij delen (WhatsApp, Facebook, Google…)
-// Zoekmachines en deel-bots krijgen de juiste titel, omschrijving en afbeelding in de HTML.
+// Nice previews when sharing (WhatsApp, Facebook, Google…)
+// Search engines and share bots get the right title, description and image in the HTML.
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../../site/assets/js/config.js';
 
-// Werkt met zowel de oude 'anon' key (eyJ…) als de nieuwe 'publishable' key (sb_publishable_…)
+// Works with both the legacy 'anon' key (eyJ…) and the new 'publishable' key (sb_publishable_…)
 const AUTH = SUPABASE_ANON_KEY.startsWith('eyJ') ? { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } : { apikey: SUPABASE_ANON_KEY };
 
 const BOTS = /bot|crawl|spider|slurp|facebookexternalhit|facebot|whatsapp|telegram|twitter|linkedin|slack|discord|skype|pinterest|embedly|vkshare|preview|google|bing|yandex|duckduck|applebot/i;
@@ -30,20 +30,20 @@ export default async (request, context) => {
     let image = img(settings.hero_image || settings.logo);
 
     const s = encodeURIComponent(decodeURIComponent(slug || ''));
-    if (kind === 'aflevering' && slug) {
+    if (kind === 'episode' && slug) {
       const [ep] = await q(`episodes?select=title,excerpt,shownotes,cover&slug=eq.${s}&status=eq.published&published_at=lte.${now}`);
       if (ep) { title = `${ep.title} — ${site}`; desc = plain(ep.excerpt || ep.shownotes); image = img(ep.cover) || image; }
-    } else if (kind === 'gast' && slug) {
+    } else if (kind === 'guest' && slug) {
       const [g] = await q(`guests?select=name,tagline,bio,photo&slug=eq.${s}`);
       if (g) { title = `${g.name} — ${site}`; desc = plain(g.tagline || g.bio); image = img(g.photo) || image; }
-    } else if (kind === 'nieuws' && slug) {
+    } else if (kind === 'news' && slug) {
       const [p] = await q(`posts?select=title,excerpt,body,image&slug=eq.${s}&status=eq.published&published_at=lte.${now}`);
       if (p) { title = `${p.title} — ${site}`; desc = plain(p.excerpt || p.body); image = img(p.image) || image; }
     } else if (kind === 'community' && /^\d+$/.test(slug || '')) {
       const [st] = await q(`stories?select=title,name,body,photo&id=eq.${slug}&status=eq.approved`);
       if (st) { title = `${st.title} — ${st.name} — ${site}`; desc = plain(st.body); image = img(st.photo) || image; }
-    } else if (kind === 'over') {
-      title = `Over ${settings.host_name || 'Lamin'} — ${site}`; desc = plain(settings.host_intro); image = img(settings.host_photo) || image;
+    } else if (kind === 'about') {
+      title = `About ${settings.host_name || 'Lamin'} — ${site}`; desc = plain(settings.host_intro); image = img(settings.host_photo) || image;
     }
 
     const res = await context.next();
@@ -69,4 +69,4 @@ ${image ? `<meta property="og:image" content="${esc(image)}">\n<meta name="twitt
   }
 };
 
-export const config = { path: ['/', '/over', '/aflevering/*', '/gast/*', '/nieuws/*', '/community/*'] };
+export const config = { path: ['/', '/about', '/episode/*', '/guest/*', '/news/*', '/community/*'] };

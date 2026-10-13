@@ -207,7 +207,7 @@ declare v_ip text := public._client_ip();
 begin
   delete from public.rate_limits where ts < now() - interval '1 day';
   if (select count(*) from public.rate_limits where ip = v_ip and action = p_action and ts > now() - p_window) >= p_max then
-    raise exception 'Je hebt al een paar keer iets ingestuurd. Probeer het later nog eens.' using errcode = 'P0001';
+    raise exception 'You have already sent a few submissions. Please try again later.' using errcode = 'P0001';
   end if;
   insert into public.rate_limits (ip, action) values (v_ip, p_action);
 end $$;
@@ -217,10 +217,10 @@ returns void language plpgsql security definer set search_path = public, storage
 begin
   if p_path is null then return; end if;
   if p_path !~ ('^' || p_folder || '/[0-9a-f-]{36}\.[a-z0-9]{2,5}$') then
-    raise exception 'Ongeldig bestand.' using errcode = 'P0001';
+    raise exception 'Invalid file.' using errcode = 'P0001';
   end if;
   if not exists (select 1 from storage.objects where bucket_id = 'inbox' and name = p_path) then
-    raise exception 'Bestand niet gevonden. Probeer opnieuw te uploaden.' using errcode = 'P0001';
+    raise exception 'File not found. Please try uploading again.' using errcode = 'P0001';
   end if;
 end $$;
 
@@ -232,13 +232,13 @@ declare v_id bigint;
 begin
   if coalesce(p_hp, '') <> '' then return; end if;                 -- honeypot: stil negeren
   if not coalesce(p_consent, false) then
-    raise exception 'Geef toestemming om je verhaal te plaatsen.' using errcode = 'P0001';
+    raise exception 'Please give permission to publish your story.' using errcode = 'P0001';
   end if;
   if char_length(trim(coalesce(p_name,''))) = 0 or char_length(trim(coalesce(p_title,''))) = 0 or char_length(trim(coalesce(p_body,''))) < 30 then
-    raise exception 'Vul je naam, een titel en je verhaal (minimaal een paar zinnen) in.' using errcode = 'P0001';
+    raise exception 'Please fill in your name, a title and your story (at least a few sentences).' using errcode = 'P0001';
   end if;
   if coalesce(p_email,'') <> '' and p_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
-    raise exception 'Dat e-mailadres klopt niet.' using errcode = 'P0001';
+    raise exception 'That email address doesn''t look right.' using errcode = 'P0001';
   end if;
   perform public._rate_limit('story', 3, interval '1 hour');
   perform public._check_upload(p_upload_path, 'stories');
@@ -260,25 +260,25 @@ declare v_id bigint; v_q text := '';
 begin
   if coalesce(p_hp, '') <> '' then return; end if;
   if p_type not in ('question','voice','topic','contact') then
-    raise exception 'Onbekend formulier.' using errcode = 'P0001';
+    raise exception 'Unknown form.' using errcode = 'P0001';
   end if;
   if coalesce(p_email,'') <> '' and p_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
-    raise exception 'Dat e-mailadres klopt niet.' using errcode = 'P0001';
+    raise exception 'That email address doesn''t look right.' using errcode = 'P0001';
   end if;
   if p_type = 'voice' and p_upload_path is null then
-    raise exception 'Neem een berichtje op of kies een audiobestand.' using errcode = 'P0001';
+    raise exception 'Record a message or choose an audio file.' using errcode = 'P0001';
   end if;
   if p_type = 'topic' and trim(coalesce(p_subject,'')) = '' then
-    raise exception 'Vul een onderwerp in.' using errcode = 'P0001';
+    raise exception 'Please fill in a topic.' using errcode = 'P0001';
   end if;
   if p_type = 'contact' and (trim(coalesce(p_name,'')) = '' or coalesce(p_email,'') = '' or trim(coalesce(p_message,'')) = '') then
-    raise exception 'Vul je naam, e-mailadres en bericht in.' using errcode = 'P0001';
+    raise exception 'Please fill in your name, email address and message.' using errcode = 'P0001';
   end if;
   if p_type = 'question' and trim(coalesce(p_message,'')) = '' and p_upload_path is null then
-    raise exception 'Je antwoord is nog leeg.' using errcode = 'P0001';
+    raise exception 'Your answer is still empty.' using errcode = 'P0001';
   end if;
   if p_type in ('topic','contact') and p_upload_path is not null then
-    raise exception 'Bijlagen zijn hier niet mogelijk.' using errcode = 'P0001';
+    raise exception 'Attachments are not possible here.' using errcode = 'P0001';
   end if;
 
   perform public._rate_limit('msg_' || p_type, 6, interval '1 hour');
@@ -338,34 +338,34 @@ create policy "inbox beheer wissen" on storage.objects for delete to authenticat
 -- ---------- Startinhoud ----------
 insert into public.settings (key, value) values
   ('site_title', 'Joe Point Podcast'),
-  ('tagline', 'Echte verhalen. Open gesprekken. Van Gambia tot Nederland.'),
-  ('intro_title', 'Welkom bij Joe Point'),
-  ('intro_text', E'Joe Point is de podcast van Lamin. Hier praten we over het leven, cultuur, ondernemen, familie en alles wat daartussen zit – met gasten die iets te vertellen hebben.\n\nZet je koptelefoon op en luister mee.'),
+  ('tagline', 'Real stories. Open conversations. From The Gambia to the world.'),
+  ('intro_title', 'Welcome to Joe Point'),
+  ('intro_text', E'Joe Point is the podcast of Lamin. We talk about life, culture, business, family and everything in between – with guests who have something to say.\n\nPut your headphones on and listen in.'),
   ('hero_image', ''), ('logo', ''),
   ('host_name', 'Lamin'), ('host_photo', ''),
-  ('host_intro', 'Host van Joe Point Podcast. Geboren in Gambia, thuis in Nederland.'),
-  ('host_bio', 'Vertel hier wie je bent: waar je bent opgegroeid, wat je doet en wat je drijft.'),
-  ('host_why', 'Waarom deze podcast? Vertel hier hoe het idee ontstond en wat je luisteraars wilt meegeven.'),
-  ('host_background', 'Je achtergrond: Gambia, de stap naar Nederland, werk, familie, en de momenten die je hebben gevormd.'),
-  ('host_mission', 'Onze missie: verhalen een stem geven die je anders niet hoort, en mensen met elkaar verbinden.'),
+  ('host_intro', 'Host of Joe Point Podcast. Born in The Gambia, at home in the Netherlands.'),
+  ('host_bio', 'Tell people who you are: where you grew up, what you do and what drives you.'),
+  ('host_why', 'Why this podcast? Tell people how the idea started and what you want your listeners to take away.'),
+  ('host_background', 'Your background: The Gambia, the move to the Netherlands, work, family, and the moments that shaped you.'),
+  ('host_mission', 'Our mission: giving a voice to stories you would not hear otherwise, and bringing people together.'),
   ('contact_email', ''),
-  ('contact_intro', 'Een vraag, samenwerking of wil je zelf te gast zijn? Laat het weten!'),
-  ('question_of_week', 'Wat is één les uit je jeugd die je nog elke dag gebruikt?'),
+  ('contact_intro', 'A question, a collaboration, or want to be a guest yourself? Let us know!'),
+  ('question_of_week', 'What is one lesson from your childhood that you still use every day?'),
   ('question_active', '1'),
-  ('stories_intro', 'Iedereen heeft een verhaal. Of je nu uit Gambia komt, in de diaspora woont of gewoon iets wilt delen – stuur je verhaal en een foto in. Na goedkeuring verschijnt het hier.'),
+  ('stories_intro', 'Everyone has a story. Whether you are from The Gambia, live in the diaspora or simply want to share something – send in your story and a photo. Once approved, it will appear here.'),
   ('social_spotify', ''), ('social_apple', ''), ('social_youtube', ''), ('social_instagram', ''),
   ('social_tiktok', ''), ('social_facebook', ''), ('social_x', ''), ('social_linkedin', ''), ('social_whatsapp', ''),
-  ('footer_text', 'Joe Point Podcast — gemaakt met liefde, van Banjul tot Nederland.'),
+  ('footer_text', 'Joe Point Podcast — made with love, from Banjul to the world.'),
   ('theme_mode', 'dark'), ('color_bg', '#0d0b0a'), ('color_primary', '#f5a524'),
   ('color_accent', '#ff6a1a'), ('color_accent2', '#ffd27a'), ('font_display', 'anton')
 on conflict (key) do nothing;
 
 insert into public.categories (name, slug, sort) values
-  ('Leven & Cultuur', 'leven-en-cultuur', 0),
-  ('Ondernemen', 'ondernemen', 1),
-  ('Gambia & Diaspora', 'gambia-en-diaspora', 2),
-  ('Familie & Relaties', 'familie-en-relaties', 3),
-  ('Gezondheid & Mindset', 'gezondheid-en-mindset', 4)
+  ('Life & Culture', 'life-and-culture', 0),
+  ('Business', 'business', 1),
+  ('Gambia & Diaspora', 'gambia-and-diaspora', 2),
+  ('Family & Relationships', 'family-and-relationships', 3),
+  ('Health & Mindset', 'health-and-mindset', 4)
 on conflict (slug) do nothing;
 
 do $$
@@ -373,27 +373,27 @@ declare g bigint; e bigint;
 begin
   if not exists (select 1 from public.episodes) then
     insert into public.guests (name, slug, tagline, bio)
-    values ('Voorbeeldgast', 'voorbeeldgast', 'Ondernemer & verhalenverteller',
-            'Dit is een voorbeeldgast. Pas de naam, bio, foto en socials aan in het beheerscherm onder **Gasten**, of verwijder deze gast.')
+    values ('Example guest', 'example-guest', 'Entrepreneur & storyteller',
+            'This is an example guest. Change the name, bio, photo and socials in the admin under **Guests**, or delete this guest.')
     returning id into g;
 
     insert into public.episodes (title, slug, number, season, excerpt, shownotes, category_id, status, duration)
-    values ('Aflevering 1 — Waar het allemaal begon', 'aflevering-1-waar-het-allemaal-begon', 1, 1,
-      'In de allereerste aflevering vertelt Lamin over zijn jeugd in Gambia, de stap naar Nederland en waarom hij Joe Point is begonnen.',
-      E'## In deze aflevering\n\n- Opgroeien in Gambia\n- De eerste jaren in Nederland\n- Waarom een podcast?\n\n## Tijdstempels\n\n- 00:00 Intro\n- 03:15 Jeugd in Gambia\n- 18:40 Naar Nederland\n- 34:10 Het idee achter Joe Point\n\n*Dit is een voorbeeldaflevering – pas hem aan of verwijder hem in het beheerscherm.*',
-      (select id from public.categories where slug = 'leven-en-cultuur'), 'published', '45 min')
+    values ('Episode 1 — Where it all began', 'episode-1-where-it-all-began', 1, 1,
+      'In the very first episode Lamin talks about growing up in The Gambia, moving to the Netherlands and why he started Joe Point.',
+      E'## In this episode\n\n- Growing up in The Gambia\n- The first years in the Netherlands\n- Why a podcast?\n\n## Timestamps\n\n- 00:00 Intro\n- 03:15 Childhood in The Gambia\n- 18:40 Moving to the Netherlands\n- 34:10 The idea behind Joe Point\n\n*This is an example episode – edit it or delete it in the admin.*',
+      (select id from public.categories where slug = 'life-and-culture'), 'published', '45 min')
     returning id into e;
     insert into public.episode_guests values (e, g);
 
     insert into public.posts (title, slug, type, excerpt, body, status)
     values ('Joe Point Podcast is live!', 'joe-point-podcast-is-live', 'nieuws',
-      'De website van Joe Point is online. Hier vind je alle afleveringen, gasten, nieuws en verhalen uit de community.',
-      E'De website van Joe Point is online! Hier vind je straks:\n\n- Alle afleveringen met show notes\n- De gasten die langskwamen\n- Verhalen uit de community\n\nHeb je een onderwerp dat je graag terughoort? Laat het weten via **Doe mee**.',
+      'The Joe Point website is online. Here you will find all episodes, guests, news and stories from the community.',
+      E'The Joe Point website is online! Here you will find:\n\n- All episodes with show notes\n- The guests who joined us\n- Stories from the community\n\nIs there a topic you would love to hear? Let us know via **Get involved**.',
       'published');
 
     insert into public.stories (name, location, title, body, status, approved_at)
-    values ('Voorbeeld', 'Serekunda, Gambia', 'Een voorbeeldverhaal',
-      'Zo ziet een goedgekeurd community-verhaal eruit. Luisteraars sturen hun verhaal en foto in via het formulier; Lamin keurt het goed in het beheerscherm voordat het hier verschijnt.',
+    values ('Example', 'Serekunda, The Gambia', 'An example story',
+      'This is what an approved community story looks like. Listeners send in their story and photo using the form; Lamin approves it in the admin before it appears here.',
       'approved', now());
   end if;
 end $$;

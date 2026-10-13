@@ -1,5 +1,9 @@
 # Joe Point Podcast — website (Netlify + Supabase)
 
+> **De website en het beheerscherm zijn in het Engels.** Deze handleiding is in het Nederlands, voor de installatie.
+> Webadressen: `/episodes`, `/episode/…`, `/guests`, `/guest/…`, `/about`, `/news`, `/community`, `/community/share`, `/get-involved`, `/contact`, en het beheer op `/admin`.
+> Oude Nederlandse adressen (zoals `/afleveringen` of `/doe-mee`) sturen automatisch door naar de nieuwe.
+
 - **Netlify** host de website.
 - **Supabase** regelt de database, de inlog voor Lamin en de opslag van foto's en audio.
 
@@ -60,6 +64,13 @@ Dit is nodig voor "wachtwoord vergeten".
 **Klaar!** Lamin logt in op `/admin`. Wil je een eigen domein? Dat koppel je in Netlify onder **Domain management**. Vergeet daarna niet stap 5 bij te werken.
 
 ---
+
+## Bijwerken van de Nederlandse naar de Engelse versie
+
+Draaide de site al in het Nederlands? Dan zijn er twee stappen nodig:
+
+1. **Bestanden bijwerken in GitHub**: ga naar je repository, klik op **Add file → Upload files** en sleep alles uit deze zip erin (de mappen `site`, `netlify`, `supabase` en de bestanden `netlify.toml` en `LEESMIJ.md`). Klik op **Commit changes**. In deze zip zit géén `config.js`, dus jouw ingevulde Supabase-gegevens blijven gewoon staan.
+2. **Database bijwerken**: open in Supabase de **SQL Editor**, plak de inhoud van `supabase/update-to-english.sql` en klik op **Run**. Daarmee worden de meldingen in de formulieren Engels, en worden de voorbeeldteksten Engels. Teksten die Lamin zelf al had aangepast, blijven zoals ze zijn.
 
 ## Wat Lamin zelf kan (via /admin)
 

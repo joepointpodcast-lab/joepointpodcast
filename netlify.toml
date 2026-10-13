@@ -1,10 +1,48 @@
-# Joe Point Podcast — Netlify-configuratie
+# Joe Point Podcast — Netlify configuration
 [build]
   publish = "site"
   functions = "netlify/functions"
   edge_functions = "netlify/edge-functions"
 
-# Alle pagina's worden door de app zelf getoond (single page app)
+# Old Dutch addresses → new English addresses (links that were already shared keep working)
+[[redirects]]
+  from = "/over"
+  to = "/about"
+  status = 301
+[[redirects]]
+  from = "/afleveringen"
+  to = "/episodes"
+  status = 301
+[[redirects]]
+  from = "/aflevering/*"
+  to = "/episode/:splat"
+  status = 301
+[[redirects]]
+  from = "/gasten"
+  to = "/guests"
+  status = 301
+[[redirects]]
+  from = "/gast/*"
+  to = "/guest/:splat"
+  status = 301
+[[redirects]]
+  from = "/nieuws"
+  to = "/news"
+  status = 301
+[[redirects]]
+  from = "/nieuws/*"
+  to = "/news/:splat"
+  status = 301
+[[redirects]]
+  from = "/community/insturen"
+  to = "/community/share"
+  status = 301
+[[redirects]]
+  from = "/doe-mee"
+  to = "/get-involved"
+  status = 301
+
+# Every page is rendered by the app itself (single page app)
 [[redirects]]
   from = "/*"
   to = "/index.html"
@@ -17,6 +55,12 @@
     Referrer-Policy = "strict-origin-when-cross-origin"
     X-Frame-Options = "SAMEORIGIN"
     Permissions-Policy = "microphone=(self), camera=(), geolocation=()"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+    Service-Worker-Allowed = "/"
 
 [[headers]]
   for = "/admin/*"

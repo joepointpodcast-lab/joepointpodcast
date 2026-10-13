@@ -1,7 +1,7 @@
-// RSS-feed van alle afleveringen op /feed
+// RSS feed of all episodes at /feed
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../../site/assets/js/config.js';
 
-// Werkt met zowel de oude 'anon' key (eyJ…) als de nieuwe 'publishable' key (sb_publishable_…)
+// Works with both the legacy 'anon' key (eyJ…) and the new 'publishable' key (sb_publishable_…)
 const AUTH = SUPABASE_ANON_KEY.startsWith('eyJ') ? { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } : { apikey: SUPABASE_ANON_KEY };
 
 const x = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
@@ -18,8 +18,8 @@ export default async (request) => {
   const items = (eps || []).map((ep) => `
   <item>
     <title>${x(ep.title)}</title>
-    <link>${origin}/aflevering/${x(ep.slug)}</link>
-    <guid>${origin}/aflevering/${x(ep.slug)}</guid>
+    <link>${origin}/episode/${x(ep.slug)}</link>
+    <guid>${origin}/episode/${x(ep.slug)}</guid>
     <pubDate>${new Date(ep.published_at).toUTCString()}</pubDate>
     <description>${x(ep.excerpt || String(ep.shownotes || '').slice(0, 400))}</description>${ep.audio ? `
     <enclosure url="${x(`${SUPABASE_URL}/storage/v1/object/public/media/${ep.audio}`)}" length="0" type="audio/mpeg"/>` : ''}
@@ -30,7 +30,7 @@ export default async (request) => {
   <title>${x(S.site_title || 'Joe Point Podcast')}</title>
   <link>${origin}/</link>
   <description>${x(S.tagline)}</description>
-  <language>nl</language>
+  <language>en</language>
   <atom:link href="${origin}/feed" rel="self" type="application/rss+xml"/>${items}
 </channel>
 </rss>`;

@@ -1,11 +1,11 @@
-// Gedeelde hulpfuncties voor site en beheer
+// Shared helpers for the website and the admin
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 
 export const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, storageKey: 'jp-auth' },
 });
 
-/* ---------- Tekst ---------- */
+/* ---------- Text ---------- */
 export const e = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 export function slugify(s) {
@@ -19,8 +19,8 @@ export function excerpt(text, len = 160) {
   return t.length > len ? t.slice(0, len).trimEnd() + '…' : t;
 }
 
-const MONTHS = ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december'];
-export function nlDate(d, withTime = false) {
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+export function fmtDate(d, withTime = false) {
   if (!d) return '';
   const x = new Date(d);
   if (isNaN(x)) return '';
@@ -28,7 +28,7 @@ export function nlDate(d, withTime = false) {
   return withTime ? `${s}, ${String(x.getHours()).padStart(2, '0')}:${String(x.getMinutes()).padStart(2, '0')}` : s;
 }
 
-/** Veilige mini-Markdown: ## kop, - lijst, 1. lijst, **vet**, *schuin*, [tekst](url), > citaat */
+/** Safe mini-Markdown: ## heading, - list, 1. list, **bold**, *italic*, [text](url), > quote */
 export function md(text) {
   const lines = String(text || '').replace(/\r\n?/g, '\n').trim().split('\n');
   if (!lines[0] && lines.length === 1) return '';
@@ -88,7 +88,7 @@ export function embedHtml(url) {
     return `<div class="embed embed-audio"><iframe height="166" title="SoundCloud" loading="lazy" src="https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}"></iframe></div>`;
   }
   if (/\.(mp3|m4a|ogg|wav)(\?.*)?$/i.test(u.pathname)) return `<audio class="player" controls preload="none" src="${e(url)}"></audio>`;
-  return `<p><a class="btn btn-ghost" href="${e(url)}" target="_blank" rel="noopener">Luister de aflevering ↗</a></p>`;
+  return `<p><a class="btn btn-ghost" href="${e(url)}" target="_blank" rel="noopener">Listen to the episode ↗</a></p>`;
 }
 
 export function episodePlayer(ep) {
@@ -96,7 +96,7 @@ export function episodePlayer(ep) {
   return embedHtml(ep.media_url);
 }
 
-/** Verklein een foto in de browser (scheelt opslag én verwijdert locatiegegevens) */
+/** Resize a photo in the browser (saves storage and strips location data) */
 export async function resizeImage(file, max = 1800, quality = 0.85) {
   if (!file || !file.type.startsWith('image/') || file.type === 'image/gif') return file;
   const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => null);
@@ -119,7 +119,7 @@ export function extOf(file) {
   return map[base] || (/^[a-z0-9]{2,5}$/.test(fromName) ? fromName : 'bin');
 }
 
-/** Upload naar een bucket; geeft het pad terug */
+/** Upload to a bucket; returns the path */
 export async function upload(bucket, folder, file) {
   const path = `${folder}/${crypto.randomUUID()}.${extOf(file)}`;
   const contentType = (file.type || 'application/octet-stream').split(';')[0];
@@ -129,14 +129,14 @@ export async function upload(bucket, folder, file) {
 }
 function uploadError(err) {
   const m = String(err.message || err);
-  if (/size|too large|exceeded/i.test(m)) return 'Het bestand is te groot.';
-  if (/mime|type/i.test(m)) return 'Dit bestandstype wordt niet ondersteund.';
-  return 'Uploaden mislukt: ' + m;
+  if (/size|too large|exceeded/i.test(m)) return 'The file is too large.';
+  if (/mime|type/i.test(m)) return 'This file type is not supported.';
+  return 'Upload failed: ' + m;
 }
 
-/** Nette foutmelding uit Supabase-fouten */
+/** Friendly error message from Supabase errors */
 export function errMsg(err) {
-  if (!err) return 'Er ging iets mis.';
+  if (!err) return 'Something went wrong.';
   return err.message || String(err);
 }
 
@@ -160,9 +160,9 @@ export function socialsHtml(links, big = false) {
   }).join('') + '</ul>';
 }
 
-export const POST_TYPES = { nieuws: 'Nieuws', update: 'Update', gast: 'Gastaankondiging', fotos: "Foto's" };
+export const POST_TYPES = { nieuws: 'News', update: 'Update', gast: 'Guest announcement', fotos: 'Photos' };
 
-/* ---------- Iconen (generiek, geen merklogo's) ---------- */
+/* ---------- Icons (generic, no brand logos) ---------- */
 const P = {
   spotify: '<circle cx="12" cy="12" r="9"/><path d="M7.5 9.5c3-1 6.5-.7 9 .8M8 12.5c2.5-.7 5.2-.4 7.3.7M8.6 15.3c1.9-.5 3.9-.3 5.5.5"/>',
   apple: '<path d="M12 3a6 6 0 0 0-6 6c0 2.2 1.2 4.1 3 5.2M12 3a6 6 0 0 1 6 6c0 2.2-1.2 4.1-3 5.2"/><circle cx="12" cy="9.5" r="2"/><path d="M12 13v8"/>',
@@ -189,20 +189,20 @@ const P = {
 };
 export const icon = (n) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || P.link}</svg>`;
 
-/* ---------- Huisstijl ---------- */
+/* ---------- Theme ---------- */
 export const FONTS = {
-  bricolage: ['Bricolage Grotesque — modern & vriendelijk', 'Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800', '"Bricolage Grotesque"'],
-  anton: ['Anton — groot & stoer (posterletter)', 'Anton', '"Anton"'],
-  oswald: ['Oswald — strak & smal', 'Oswald:wght@500;700', '"Oswald"'],
-  playfair: ['Playfair Display — klassiek & chic', 'Playfair+Display:wght@600;800', '"Playfair Display"'],
+  bricolage: ['Bricolage Grotesque — modern & friendly', 'Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800', '"Bricolage Grotesque"'],
+  anton: ['Anton — big & bold (poster style)', 'Anton', '"Anton"'],
+  oswald: ['Oswald — clean & narrow', 'Oswald:wght@500;700', '"Oswald"'],
+  playfair: ['Playfair Display — classic & elegant', 'Playfair+Display:wght@600;800', '"Playfair Display"'],
   righteous: ['Righteous — retro neon', 'Righteous', '"Righteous"'],
 };
 export const PRESETS = {
-  vuur: ['Vuur & goud', { theme_mode: 'dark', color_bg: '#0d0b0a', color_primary: '#f5a524', color_accent: '#ff6a1a', color_accent2: '#ffd27a', font_display: 'anton' }],
+  vuur: ['Fire & gold', { theme_mode: 'dark', color_bg: '#0d0b0a', color_primary: '#f5a524', color_accent: '#ff6a1a', color_accent2: '#ffd27a', font_display: 'anton' }],
   studio: ['Studio neon', { theme_mode: 'dark', color_bg: '#0a1020', color_primary: '#f2b544', color_accent: '#3d8bff', color_accent2: '#f2b544', font_display: 'righteous' }],
   gambia: ['Gambia', { theme_mode: 'dark', color_bg: '#0e1512', color_primary: '#3aa35b', color_accent: '#e23d3d', color_accent2: '#5b8def', font_display: 'bricolage' }],
-  licht: ['Licht & warm', { theme_mode: 'light', color_bg: '#fbf7f0', color_primary: '#0f5c4a', color_accent: '#e0a526', color_accent2: '#c2412d', font_display: 'bricolage' }],
-  zwart: ['Zwart-wit', { theme_mode: 'light', color_bg: '#ffffff', color_primary: '#111111', color_accent: '#f5a524', color_accent2: '#111111', font_display: 'oswald' }],
+  licht: ['Light & warm', { theme_mode: 'light', color_bg: '#fbf7f0', color_primary: '#0f5c4a', color_accent: '#e0a526', color_accent2: '#c2412d', font_display: 'bricolage' }],
+  zwart: ['Black & white', { theme_mode: 'light', color_bg: '#ffffff', color_primary: '#111111', color_accent: '#f5a524', color_accent2: '#111111', font_display: 'oswald' }],
 };
 
 const rgb = (h) => { h = /^#[0-9a-f]{6}$/i.test(h) ? h : '#000000'; return [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)); };
@@ -252,7 +252,7 @@ export function fontUrl(S) {
   return `https://fonts.googleapis.com/css2?family=${FONTS[theme(S).font_display][1]}&family=Inter:wght@400;500;600&display=swap`;
 }
 
-/** Thema toepassen op de pagina (en onthouden voor een snellere volgende keer) */
+/** Apply the theme to the page (and remember it for a faster next visit) */
 export function applyTheme(S, el = document.documentElement) {
   const v = themeVars(S);
   for (const [k, val] of Object.entries(v)) el.style.setProperty(k, val);
@@ -260,5 +260,5 @@ export function applyTheme(S, el = document.documentElement) {
   if (!link) { link = document.createElement('link'); link.id = 'theme-font'; link.rel = 'stylesheet'; document.head.appendChild(link); }
   const href = fontUrl(S);
   if (link.href !== href) link.href = href;
-  try { localStorage.setItem('jp-theme', JSON.stringify(v)); } catch { /* geen opslag beschikbaar */ }
+  try { localStorage.setItem('jp-theme', JSON.stringify(v)); } catch { /* no storage available */ }
 }
