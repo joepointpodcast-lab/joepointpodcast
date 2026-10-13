@@ -160,7 +160,7 @@ async function shell(page) {
     <a class="side-brand" href="#/"><span>${icon('mic')}</span> Joe Point <small>admin</small></a>
     <button class="side-toggle" aria-expanded="false" id="tog">${icon('menu')} Menu</button>
     <nav class="side-nav">${MENU.map(([k, l, ic, m]) => `<a href="#/${k}"${m.includes(page) ? ' aria-current="page"' : ''}>${icon(ic)} ${e(l)}${badge[k] ? `<b class="count">${badge[k]}</b>` : ''}</a>`).join('')}</nav>
-    <div class="side-foot"><a href="/" target="_blank">View website ↗</a><a href="#" id="logout">Log out</a></div>
+    <div class="side-foot"><a href="/">View website →</a><a href="#" id="logout">Log out</a></div>
   </aside>
   <main class="main"><div id="flash"></div><div id="main"></div></main>`;
   document.getElementById('logout').onclick = (ev) => { ev.preventDefault(); sb.auth.signOut(); };
@@ -316,7 +316,7 @@ async function viewEpisode(id, main) {
   const r = row || { status: 'draft', number: (maxNr[0]?.number || 0) + 1, season: 1 };
   main.innerHTML = `
   <header class="page-head"><div><a class="back" href="#/episodes">← Episodes</a><h1>${isNew ? 'New episode' : 'Edit episode'}</h1></div>
-    ${row?.status === 'published' ? `<a class="btn btn-ghost" target="_blank" href="/episode/${e(row.slug)}">View on site ↗</a>` : ''}</header>
+    ${row?.status === 'published' ? `<a class="btn btn-ghost"  href="/episode/${e(row.slug)}">View on site →</a>` : ''}</header>
   <form class="edit-grid" id="f">
     <div class="stack">
       <section class="panel stack">
@@ -406,7 +406,7 @@ async function viewGuest(id, main) {
   const r = row || {};
   main.innerHTML = `
   <header class="page-head"><div><a class="back" href="#/guests">← Guests</a><h1>${isNew ? 'New guest' : 'Edit guest'}</h1></div>
-    ${row ? `<a class="btn btn-ghost" target="_blank" href="/guest/${e(row.slug)}">View guest page ↗</a>` : ''}</header>
+    ${row ? `<a class="btn btn-ghost"  href="/guest/${e(row.slug)}">View guest page →</a>` : ''}</header>
   <form class="edit-grid" id="f">
     <div class="stack">
       <section class="panel stack">
@@ -501,7 +501,7 @@ async function viewPost(id, main) {
   const r = row || { type: 'nieuws', status: 'draft' };
   main.innerHTML = `
   <header class="page-head"><div><a class="back" href="#/posts">← News</a><h1>${isNew ? 'New post' : 'Edit post'}</h1></div>
-    ${row?.status === 'published' ? `<a class="btn btn-ghost" target="_blank" href="/news/${e(row.slug)}">View on site ↗</a>` : ''}</header>
+    ${row?.status === 'published' ? `<a class="btn btn-ghost"  href="/news/${e(row.slug)}">View on site →</a>` : ''}</header>
   <form class="edit-grid" id="f">
     <div class="stack">
       <section class="panel stack">${fText('title', 'Title', r.title, { required: true })}${fArea('excerpt', 'Short intro', r.excerpt, { rows: 2 })}${fArea('body', 'Text', r.body, { rows: 14, md: true, help: MD_HELP })}</section>
@@ -598,7 +598,7 @@ async function viewStory(id, main) {
   const orig = !row.photo && row.upload_path ? (await signedMap([row.upload_path]))[row.upload_path] : null;
   main.innerHTML = `
   <header class="page-head"><div><a class="back" href="#/stories/${row.status}">← Community stories</a><h1>Review story</h1></div>
-    <div>${statusBadge(row.status)} ${row.status === 'approved' ? `<a class="btn btn-ghost btn-sm" target="_blank" href="/community/${row.id}">View on site ↗</a>` : ''}</div></header>
+    <div>${statusBadge(row.status)} ${row.status === 'approved' ? `<a class="btn btn-ghost btn-sm"  href="/community/${row.id}">View on site →</a>` : ''}</div></header>
   <form class="edit-grid" id="f">
     <div class="stack"><section class="panel stack">
       <p class="muted small">Submitted on ${fmtDate(row.created_at, true)}${contact ? ` · <a href="mailto:${e(contact.email)}">${e(contact.email)}</a> (not shown on the site)` : ''}. You can edit the text (e.g. typos) before approving.</p>
@@ -764,7 +764,7 @@ function settingsFields() {
 async function viewSettings(tab, main) {
   tab = TABS[tab] ? tab : 'general';
   await loadSettings();
-  const head = `<header class="page-head"><h1>Settings</h1><a class="btn btn-ghost" target="_blank" href="/">View website ↗</a></header>
+  const head = `<header class="page-head"><h1>Settings</h1><a class="btn btn-ghost" href="/">View website →</a></header>
     <nav class="tabs">${Object.entries(TABS).map(([k, l]) => `<a href="#/settings/${k}"${tab === k ? ' aria-current="page"' : ''}>${l}</a>`).join('')}</nav>`;
 
   if (tab === 'account') {

@@ -346,3 +346,18 @@ p { margin: 0 0 1em; }
 /* Search bar fits on small phones */
 .search input { min-width: 0; }
 @media (max-width: 420px) { .search .btn { padding: .8em 1em; } }
+
+/* ---------- Admin shortcut bar (only for the logged-in admin) ---------- */
+.adminbar { position: sticky; top: 72px; z-index: 19; background: var(--primary); color: var(--primary-ink); box-shadow: 0 6px 18px -10px rgba(0,0,0,.5); }
+.ab-inner { display: flex; align-items: center; gap: 10px; min-height: 52px; overflow-x: auto; scrollbar-width: none; }
+.ab-inner::-webkit-scrollbar { display: none; }
+.ab-label { font-weight: 700; font-size: .85rem; white-space: nowrap; opacity: .85; }
+.ab-actions, .ab-right { display: flex; gap: 6px; flex: none; }
+.ab-right { margin-left: auto; }
+.ab-btn { white-space: nowrap; padding: .45em .9em; border-radius: 999px; font-size: .88rem; font-weight: 600; text-decoration: none; color: inherit;
+  border: 1.5px solid color-mix(in srgb, var(--primary-ink) 35%, transparent); }
+.ab-btn:hover { background: color-mix(in srgb, var(--primary-ink) 12%, transparent); }
+.ab-main { background: var(--primary-ink); color: var(--primary); border-color: var(--primary-ink); }
+.ab-main:hover { background: var(--primary-ink); opacity: .9; }
+.ab-btn b { display: inline-block; min-width: 1.4em; padding: 0 .35em; border-radius: 999px; background: var(--accent-2); color: var(--bg); font-size: .78rem; text-align: center; }
+@media (max-width: 960px) { .adminbar { top: 72px; } .ab-label { display: none; } }

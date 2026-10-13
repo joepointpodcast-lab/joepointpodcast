@@ -8,6 +8,9 @@ import {
 const $main = document.getElementById('main');
 let S = {};          // settings
 let CATS = [];       // categories
+let IS_ADMIN = false; // logged in as admin? → show shortcut bar
+let ACTIONS = [];     // shortcuts for the current page (only shown to the admin)
+const act = (...list) => { ACTIONS = list; };
 
 /* =========================================================
    Start-up
@@ -29,6 +32,7 @@ async function boot() {
   CATS = cats || [];
   applyTheme(S);
   renderChrome();
+  await checkAdmin();
   route();
 }
 
@@ -64,6 +68,7 @@ async function route() {
     if (re.test(path)) { history.replaceState({}, '', path.replace(re, to) + location.search + location.hash); path = decodeURIComponent(location.pathname); break; }
   }
   const q = new URLSearchParams(location.search);
+  ACTIONS = [];
   setNav(path);
   closeMenu();
   for (const [re, fn] of routes) {
@@ -105,6 +110,7 @@ function render(title, html, desc) {
 
 function afterRender() {
   bindForms();
+  renderAdminBar();
   if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
 }
 
@@ -162,6 +168,42 @@ function setNav(path) {
   document.querySelectorAll('[data-nav]').forEach((a) => {
     if (a.dataset.nav === (map[first] || first)) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
+}
+
+/* =========================================================
+   Admin shortcut bar (only visible when Lamin is logged in)
+   ========================================================= */
+async function checkAdmin() {
+  try {
+    const { data } = await sb.auth.getSession();
+    if (!data.session) return;
+    const { data: ok } = await sb.rpc('is_admin');
+    IS_ADMIN = !!ok;
+  } catch { IS_ADMIN = false; }
+}
+
+async function renderAdminBar() {
+  if (!IS_ADMIN) return;
+  let bar = document.getElementById('adminbar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'adminbar';
+    bar.className = 'adminbar';
+    document.querySelector('.site-header').after(bar);
+  }
+  const link = (label, hash, cls = '') => `<a class="ab-btn ${cls}" href="/admin/${hash}">${e(label)}</a>`;
+  bar.innerHTML = `<div class="wrap ab-inner">
+    <span class="ab-label" title="Only you can see this bar">🔑 Admin</span>
+    <div class="ab-actions">${ACTIONS.map(([l, h], i) => link(l, h, i === 0 ? 'ab-main' : '')).join('')}</div>
+    <div class="ab-right">${link('📥 Inbox', '#/inbox', 'ab-count" data-c="inbox')}${link('📝 Stories', '#/stories/pending', 'ab-count" data-c="stories')}${link('🏠 Dashboard', '#/')}</div>
+  </div>`;
+  // live counters
+  const [{ count: unread }, { count: pending }] = await Promise.all([
+    sb.from('submissions').select('id', { count: 'exact', head: true }).eq('is_read', false),
+    sb.from('stories').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+  ]);
+  const badge = (sel, n) => { const a = bar.querySelector(`[data-c="${sel}"]`); if (a && n) a.insertAdjacentHTML('beforeend', ` <b>${n}</b>`); };
+  badge('inbox', unread); badge('stories', pending);
 }
 
 /* =========================================================
@@ -241,6 +283,7 @@ async function viewHome() {
   const hero = S.hero_image || S.host_photo;
   const platforms = Object.fromEntries(Object.entries(siteSocials(S)).filter(([k]) => ['spotify', 'apple', 'youtube'].includes(k)));
   const firstGuests = first ? await guestsOf(first.id) : [];
+  act(['✏️ Edit homepage text & photo', '#/settings/general'], ['🎨 Colours & logo', '#/settings/style'], ['➕ New episode', '#/episode/new'], ['➕ News post', '#/post/new']);
 
   render('', `
   <section class="hero"><div class="wrap hero-grid">
@@ -305,6 +348,7 @@ async function viewAbout() {
   const host = S.host_name || 'Lamin';
   const photo = S.host_photo || S.hero_image;
   const recent = await publishedEpisodes().order('published_at', { ascending: false }).limit(3).then(must);
+  act(['✏️ Edit this page', '#/settings/host']);
   render('About ' + host, `
   <section class="page-hero"><div class="wrap about-hero">
     <div><p class="eyebrow">About the host</p><h1>${e(host)}</h1><p class="lead">${e(S.host_intro)}</p>${socialsHtml(siteSocials(S), true)}</div>
@@ -349,6 +393,7 @@ async function viewEpisodes(_, q) {
     const cur = (cat?.slug || '') === (slug || '');
     return `<a href="/episodes${p.toString() ? '?' + p : ''}"${cur ? ' aria-current="true"' : ''}>${e(label)}</a>`;
   };
+  act(['➕ New episode', '#/episode/new'], ['🏷️ Categories', '#/categories']);
   render(cat ? cat.name : 'Episodes', `
   <section class="page-hero"><div class="wrap">
     <p class="eyebrow">All episodes</p><h1>${e(cat ? cat.name : 'Episodes')}</h1>
@@ -376,6 +421,7 @@ async function viewEpisode(slug) {
     publishedEpisodes('title,slug').gt('published_at', ep.published_at).order('published_at', { ascending: true }).limit(1).maybeSingle(),
   ]);
   const shareText = encodeURIComponent(ep.title + ' — ' + location.href);
+  act(['✏️ Edit this episode', `#/episode/${ep.id}`], ['➕ New episode', '#/episode/new']);
   render(ep.title, `
   <section class="page-hero ep-hero"><div class="wrap ep-head">
     <div class="ep-head-cover">${ep.cover ? `<img src="${e(media(ep.cover))}" alt="">` : coverFallback(ep.number)}</div>
@@ -416,6 +462,7 @@ async function viewGuests() {
   ]);
   const n = {};
   (eps || []).forEach((ep) => (ep.episode_guests || []).forEach((r) => { n[r.guest_id] = (n[r.guest_id] || 0) + 1; }));
+  act(['➕ New guest', '#/guest/new']);
   render('Guests', `
   <section class="page-hero"><div class="wrap"><p class="eyebrow">Who joined us?</p><h1>Guests</h1><p class="lead">The people who shared their stories on Joe Point.</p></div></section>
   <section class="section"><div class="wrap">
@@ -433,6 +480,7 @@ async function viewGuest(slug) {
   const ids = (links || []).map((r) => r.episode_id);
   const eps = ids.length ? (await publishedEpisodes().in('id', ids).order('published_at', { ascending: false })).data || [] : [];
   const soc = {}; ['website', 'instagram', 'tiktok', 'youtube', 'facebook', 'x', 'linkedin'].forEach((k) => { if (g[k]) soc[k] = g[k]; });
+  act(['✏️ Edit this guest', `#/guest/${g.id}`], ['➕ New guest', '#/guest/new']);
   render(g.name, `
   <section class="page-hero"><div class="wrap guest-head">
     <div class="guest-head-photo">${g.photo ? `<img src="${e(media(g.photo))}" alt="${e(g.name)}">` : `<span class="avatar avatar-xl">${e(g.name[0] || '?')}</span>`}</div>
@@ -449,6 +497,7 @@ async function viewNews(_, q) {
   let query = publishedPosts();
   if (type) query = query.eq('type', type);
   const { data, count } = await query.order('published_at', { ascending: false }).range((page - 1) * PAGE, page * PAGE - 1).then(must);
+  act(['➕ New news post', '#/post/new']);
   render('News & updates', `
   <section class="page-hero"><div class="wrap"><p class="eyebrow">Behind the scenes</p><h1>News & updates</h1>
     <nav class="chips" aria-label="Post type"><a href="/news"${!type ? ' aria-current="true"' : ''}>All</a>
@@ -460,6 +509,7 @@ async function viewPost(slug) {
   const { data: p } = await publishedPosts().eq('slug', slug).maybeSingle();
   if (!p) return notFound();
   const { data: imgs } = await sb.from('post_images').select('*').eq('post_id', p.id).order('sort').order('id');
+  act(['✏️ Edit this post', `#/post/${p.id}`], ['➕ New news post', '#/post/new']);
   render(p.title, `
   <article><section class="page-hero"><div class="wrap narrow">
     <div class="meta"><a class="tag tag-${e(p.type)}" href="/news?type=${e(p.type)}">${e(POST_TYPES[p.type] || 'News')}</a><span>${fmtDate(p.published_at)}</span></div>
@@ -476,6 +526,7 @@ async function viewCommunity(_, q) {
   const page = pageNum(q), per = 12;
   const { data, count } = await sb.from('stories').select('id,name,location,title,body,photo,approved_at', { count: 'exact' })
     .eq('status', 'approved').order('approved_at', { ascending: false }).range((page - 1) * per, page * per - 1).then(must);
+  act(['📝 Review new stories', '#/stories/pending'], ['✏️ Edit intro text', '#/settings/getinvolved']);
   render('Community stories', `
   <section class="page-hero"><div class="wrap community-hero">
     <div><p class="eyebrow">From The Gambia to everywhere</p><h1>Community stories</h1><p class="lead">${e(S.stories_intro)}</p></div>
@@ -488,6 +539,7 @@ async function viewCommunity(_, q) {
 async function viewStory(id) {
   const { data: s } = await sb.from('stories').select('id,name,location,title,body,photo,approved_at,created_at').eq('id', id).eq('status', 'approved').maybeSingle();
   if (!s) return notFound();
+  act(['✏️ Edit this story', `#/story/${s.id}`]);
   render(s.title, `
   <article><section class="page-hero"><div class="wrap narrow">
     <p class="eyebrow"><a href="/community">Community stories</a></p><h1>${e(s.title)}</h1>
@@ -538,6 +590,7 @@ async function viewParticipate() {
   const { data: answers } = await sb.from('submissions').select('id,type,name,message,question,public_audio,created_at').eq('is_public', true).order('created_at', { ascending: false }).limit(12);
   const qOn = S.question_active === '1' && S.question_of_week;
   const host = e(S.host_name || 'Lamin');
+  act(['❓ Change question of the week', '#/settings/getinvolved'], ['📥 Open inbox', '#/inbox']);
   render('Get involved', `
   <section class="page-hero"><div class="wrap"><p class="eyebrow">Your voice in the podcast</p><h1>Get involved</h1>
     <p class="lead">We make Joe Point together. Answer the question of the week, record a voice message or tell us which topic you'd love to hear.</p>
@@ -577,6 +630,7 @@ async function viewParticipate() {
 function viewContact() {
   const mail = S.contact_email;
   const soc = siteSocials(S);
+  act(['✏️ Edit contact & socials', '#/settings/contact'], ['📥 Open inbox', '#/inbox/contact']);
   render('Contact', `
   <section class="page-hero"><div class="wrap"><p class="eyebrow">Get in touch</p><h1>Contact</h1><p class="lead">${e(S.contact_intro)}</p></div></section>
   <section class="section"><div class="wrap two-col">
