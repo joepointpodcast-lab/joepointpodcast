@@ -1,0 +1,406 @@
+-- =====================================================================
+--  Joe Point Podcast — Supabase database
+--  Plak dit hele bestand in Supabase → SQL Editor → Run.
+--  Daarna onderaan je eigen e-mailadres invullen bij "BEHEERDER".
+-- =====================================================================
+
+-- ---------- Beheerders ----------
+create table if not exists public.admins (
+  email text primary key
+);
+alter table public.admins enable row level security;  -- geen policies: niemand kan dit lezen via de API
+
+create or replace function public.is_admin()
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from public.admins
+    where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  );
+$$;
+
+-- ---------- Tabellen ----------
+create table if not exists public.settings (
+  key   text primary key,
+  value text not null default ''
+);
+
+create table if not exists public.categories (
+  id   bigint generated always as identity primary key,
+  name text not null,
+  slug text not null unique,
+  sort int  not null default 0
+);
+
+create table if not exists public.episodes (
+  id           bigint generated always as identity primary key,
+  title        text not null,
+  slug         text not null unique,
+  number       int,
+  season       int,
+  excerpt      text not null default '',
+  shownotes    text not null default '',
+  cover        text,          -- pad in bucket "media"
+  audio        text,          -- pad in bucket "media"
+  media_url    text not null default '',
+  duration     text not null default '',
+  category_id  bigint references public.categories(id) on delete set null,
+  status       text not null default 'draft' check (status in ('draft','published')),
+  published_at timestamptz not null default now(),
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+create table if not exists public.guests (
+  id         bigint generated always as identity primary key,
+  name       text not null,
+  slug       text not null unique,
+  tagline    text not null default '',
+  bio        text not null default '',
+  photo      text,
+  website    text not null default '',
+  instagram  text not null default '',
+  tiktok     text not null default '',
+  youtube    text not null default '',
+  facebook   text not null default '',
+  x          text not null default '',
+  linkedin   text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.episode_guests (
+  episode_id bigint not null references public.episodes(id) on delete cascade,
+  guest_id   bigint not null references public.guests(id) on delete cascade,
+  primary key (episode_id, guest_id)
+);
+
+create table if not exists public.posts (
+  id           bigint generated always as identity primary key,
+  title        text not null,
+  slug         text not null unique,
+  type         text not null default 'nieuws' check (type in ('nieuws','update','gast','fotos')),
+  excerpt      text not null default '',
+  body         text not null default '',
+  image        text,
+  status       text not null default 'draft' check (status in ('draft','published')),
+  published_at timestamptz not null default now(),
+  created_at   timestamptz not null default now()
+);
+
+create table if not exists public.post_images (
+  id      bigint generated always as identity primary key,
+  post_id bigint not null references public.posts(id) on delete cascade,
+  file    text not null,
+  caption text not null default '',
+  sort    int  not null default 0
+);
+
+create table if not exists public.stories (
+  id          bigint generated always as identity primary key,
+  name        text not null check (char_length(name) between 1 and 80),
+  location    text not null default '' check (char_length(location) <= 80),
+  title       text not null check (char_length(title) between 1 and 140),
+  body        text not null check (char_length(body) between 1 and 8000),
+  upload_path text,          -- originele foto in privé-bucket "inbox"
+  photo       text,          -- openbare foto in "media" (pas na goedkeuring)
+  status      text not null default 'pending' check (status in ('pending','approved','rejected')),
+  admin_note  text not null default '',
+  created_at  timestamptz not null default now(),
+  approved_at timestamptz
+);
+
+create table if not exists public.submissions (
+  id           bigint generated always as identity primary key,
+  type         text not null check (type in ('question','voice','topic','contact')),
+  name         text not null default '' check (char_length(name) <= 80),
+  subject      text not null default '' check (char_length(subject) <= 140),
+  message      text not null default '' check (char_length(message) <= 5000),
+  question     text not null default '',
+  upload_path  text,         -- audio in privé-bucket "inbox"
+  public_audio text,         -- kopie in "media" als Lamin het op de site zet
+  is_public    boolean not null default false,
+  is_read      boolean not null default false,
+  created_at   timestamptz not null default now()
+);
+
+-- E-mailadressen van inzenders apart en alleen zichtbaar voor beheerders
+create table if not exists public.private_contacts (
+  kind   text   not null check (kind in ('story','submission')),
+  ref_id bigint not null,
+  email  text   not null,
+  primary key (kind, ref_id)
+);
+
+create table if not exists public.rate_limits (
+  ip     text not null,
+  action text not null,
+  ts     timestamptz not null default now()
+);
+
+create index if not exists episodes_pub_idx    on public.episodes (status, published_at desc);
+create index if not exists posts_pub_idx       on public.posts (status, published_at desc);
+create index if not exists stories_status_idx  on public.stories (status, created_at desc);
+create index if not exists submissions_idx     on public.submissions (is_read, created_at desc);
+create index if not exists rate_limits_idx     on public.rate_limits (ip, action, ts);
+
+-- ---------- Row Level Security ----------
+alter table public.settings          enable row level security;
+alter table public.categories        enable row level security;
+alter table public.episodes          enable row level security;
+alter table public.guests            enable row level security;
+alter table public.episode_guests    enable row level security;
+alter table public.posts             enable row level security;
+alter table public.post_images       enable row level security;
+alter table public.stories           enable row level security;
+alter table public.submissions       enable row level security;
+alter table public.private_contacts  enable row level security;
+alter table public.rate_limits       enable row level security;
+
+-- Iedereen mag lezen wat publiek is; alleen de beheerder mag schrijven
+do $$
+declare t text;
+begin
+  foreach t in array array['settings','categories','guests','episode_guests','post_images'] loop
+    execute format('drop policy if exists "lezen" on public.%I', t);
+    execute format('create policy "lezen" on public.%I for select using (true)', t);
+    execute format('drop policy if exists "beheer" on public.%I', t);
+    execute format('create policy "beheer" on public.%I for all to authenticated using (public.is_admin()) with check (public.is_admin())', t);
+  end loop;
+
+  foreach t in array array['episodes','posts'] loop
+    execute format('drop policy if exists "lezen" on public.%I', t);
+    execute format($p$create policy "lezen" on public.%I for select using ((status = 'published' and published_at <= now()) or public.is_admin())$p$, t);
+    execute format('drop policy if exists "beheer" on public.%I', t);
+    execute format('create policy "beheer" on public.%I for all to authenticated using (public.is_admin()) with check (public.is_admin())', t);
+  end loop;
+end $$;
+
+drop policy if exists "lezen" on public.stories;
+create policy "lezen" on public.stories for select using (status = 'approved' or public.is_admin());
+drop policy if exists "beheer" on public.stories;
+create policy "beheer" on public.stories for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists "lezen" on public.submissions;
+create policy "lezen" on public.submissions for select using (is_public or public.is_admin());
+drop policy if exists "beheer" on public.submissions;
+create policy "beheer" on public.submissions for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists "beheer" on public.private_contacts;
+create policy "beheer" on public.private_contacts for all to authenticated using (public.is_admin()) with check (public.is_admin());
+-- rate_limits: geen policies → alleen via de functies hieronder
+
+-- Bezoekers schrijven nooit rechtstreeks in tabellen, alleen via de functies hieronder
+revoke insert, update, delete on all tables in schema public from anon;
+
+-- ---------- Inzendingen van bezoekers (met spam- en limietcontrole) ----------
+create or replace function public._client_ip()
+returns text language sql stable as $$
+  select coalesce(
+    split_part(nullif(current_setting('request.headers', true), '')::json ->> 'x-forwarded-for', ',', 1),
+    'onbekend');
+$$;
+
+create or replace function public._rate_limit(p_action text, p_max int, p_window interval)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_ip text := public._client_ip();
+begin
+  delete from public.rate_limits where ts < now() - interval '1 day';
+  if (select count(*) from public.rate_limits where ip = v_ip and action = p_action and ts > now() - p_window) >= p_max then
+    raise exception 'Je hebt al een paar keer iets ingestuurd. Probeer het later nog eens.' using errcode = 'P0001';
+  end if;
+  insert into public.rate_limits (ip, action) values (v_ip, p_action);
+end $$;
+
+create or replace function public._check_upload(p_path text, p_folder text)
+returns void language plpgsql security definer set search_path = public, storage as $$
+begin
+  if p_path is null then return; end if;
+  if p_path !~ ('^' || p_folder || '/[0-9a-f-]{36}\.[a-z0-9]{2,5}$') then
+    raise exception 'Ongeldig bestand.' using errcode = 'P0001';
+  end if;
+  if not exists (select 1 from storage.objects where bucket_id = 'inbox' and name = p_path) then
+    raise exception 'Bestand niet gevonden. Probeer opnieuw te uploaden.' using errcode = 'P0001';
+  end if;
+end $$;
+
+create or replace function public.submit_story(
+  p_name text, p_location text, p_email text, p_title text, p_body text,
+  p_upload_path text, p_consent boolean, p_hp text default ''
+) returns void language plpgsql security definer set search_path = public as $$
+declare v_id bigint;
+begin
+  if coalesce(p_hp, '') <> '' then return; end if;                 -- honeypot: stil negeren
+  if not coalesce(p_consent, false) then
+    raise exception 'Geef toestemming om je verhaal te plaatsen.' using errcode = 'P0001';
+  end if;
+  if char_length(trim(coalesce(p_name,''))) = 0 or char_length(trim(coalesce(p_title,''))) = 0 or char_length(trim(coalesce(p_body,''))) < 30 then
+    raise exception 'Vul je naam, een titel en je verhaal (minimaal een paar zinnen) in.' using errcode = 'P0001';
+  end if;
+  if coalesce(p_email,'') <> '' and p_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception 'Dat e-mailadres klopt niet.' using errcode = 'P0001';
+  end if;
+  perform public._rate_limit('story', 3, interval '1 hour');
+  perform public._check_upload(p_upload_path, 'stories');
+
+  insert into public.stories (name, location, title, body, upload_path)
+  values (left(trim(p_name), 80), left(trim(coalesce(p_location,'')), 80), left(trim(p_title), 140), left(trim(p_body), 8000), p_upload_path)
+  returning id into v_id;
+
+  if coalesce(p_email,'') <> '' then
+    insert into public.private_contacts (kind, ref_id, email) values ('story', v_id, left(trim(p_email), 200));
+  end if;
+end $$;
+
+create or replace function public.submit_message(
+  p_type text, p_name text, p_email text, p_subject text, p_message text,
+  p_upload_path text default null, p_hp text default ''
+) returns void language plpgsql security definer set search_path = public as $$
+declare v_id bigint; v_q text := '';
+begin
+  if coalesce(p_hp, '') <> '' then return; end if;
+  if p_type not in ('question','voice','topic','contact') then
+    raise exception 'Onbekend formulier.' using errcode = 'P0001';
+  end if;
+  if coalesce(p_email,'') <> '' and p_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception 'Dat e-mailadres klopt niet.' using errcode = 'P0001';
+  end if;
+  if p_type = 'voice' and p_upload_path is null then
+    raise exception 'Neem een berichtje op of kies een audiobestand.' using errcode = 'P0001';
+  end if;
+  if p_type = 'topic' and trim(coalesce(p_subject,'')) = '' then
+    raise exception 'Vul een onderwerp in.' using errcode = 'P0001';
+  end if;
+  if p_type = 'contact' and (trim(coalesce(p_name,'')) = '' or coalesce(p_email,'') = '' or trim(coalesce(p_message,'')) = '') then
+    raise exception 'Vul je naam, e-mailadres en bericht in.' using errcode = 'P0001';
+  end if;
+  if p_type = 'question' and trim(coalesce(p_message,'')) = '' and p_upload_path is null then
+    raise exception 'Je antwoord is nog leeg.' using errcode = 'P0001';
+  end if;
+  if p_type in ('topic','contact') and p_upload_path is not null then
+    raise exception 'Bijlagen zijn hier niet mogelijk.' using errcode = 'P0001';
+  end if;
+
+  perform public._rate_limit('msg_' || p_type, 6, interval '1 hour');
+  perform public._check_upload(p_upload_path, 'voice');
+
+  if p_type = 'question' then
+    select value into v_q from public.settings where key = 'question_of_week';
+  end if;
+
+  insert into public.submissions (type, name, subject, message, question, upload_path)
+  values (p_type, left(trim(coalesce(p_name,'')), 80), left(trim(coalesce(p_subject,'')), 140),
+          left(trim(coalesce(p_message,'')), 5000), coalesce(v_q, ''), p_upload_path)
+  returning id into v_id;
+
+  if coalesce(p_email,'') <> '' then
+    insert into public.private_contacts (kind, ref_id, email) values ('submission', v_id, left(trim(p_email), 200));
+  end if;
+end $$;
+
+revoke all on function public.submit_story(text,text,text,text,text,text,boolean,text) from public;
+revoke all on function public.submit_message(text,text,text,text,text,text,text) from public;
+grant execute on function public.submit_story(text,text,text,text,text,text,boolean,text) to anon, authenticated;
+grant execute on function public.submit_message(text,text,text,text,text,text,text) to anon, authenticated;
+revoke all on function public._rate_limit(text,int,interval) from public, anon, authenticated;
+revoke all on function public._check_upload(text,text) from public, anon, authenticated;
+
+-- Houdt de gratis database wakker (aangeroepen door Netlify, elke dag)
+create or replace function public.ping()
+returns text language sql stable as $$ select 'pong'::text $$;
+grant execute on function public.ping() to anon;
+
+-- ---------- Opslag (foto's en audio) ----------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values
+  ('media', 'media', true,  52428800, array['image/jpeg','image/png','image/webp','image/gif','audio/mpeg','audio/mp4','audio/x-m4a','audio/aac','audio/ogg','audio/wav','audio/webm']),
+  ('inbox', 'inbox', false, 12582912, array['image/jpeg','image/png','image/webp','audio/mpeg','audio/mp4','audio/x-m4a','audio/aac','audio/ogg','audio/wav','audio/webm'])
+on conflict (id) do update set public = excluded.public, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "media beheer"       on storage.objects;
+drop policy if exists "inbox insturen"     on storage.objects;
+drop policy if exists "inbox beheer lezen" on storage.objects;
+drop policy if exists "inbox beheer wissen" on storage.objects;
+
+-- media: openbaar te bekijken (public bucket), alleen de beheerder uploadt/wist
+create policy "media beheer" on storage.objects for all to authenticated
+  using (bucket_id = 'media' and public.is_admin())
+  with check (bucket_id = 'media' and public.is_admin());
+
+-- inbox: bezoekers mogen alleen nieuwe bestanden toevoegen (niet lezen, niet overschrijven)
+create policy "inbox insturen" on storage.objects for insert to anon, authenticated
+  with check (bucket_id = 'inbox' and (storage.foldername(name))[1] in ('stories','voice'));
+create policy "inbox beheer lezen" on storage.objects for select to authenticated
+  using (bucket_id = 'inbox' and public.is_admin());
+create policy "inbox beheer wissen" on storage.objects for delete to authenticated
+  using (bucket_id = 'inbox' and public.is_admin());
+
+-- ---------- Startinhoud ----------
+insert into public.settings (key, value) values
+  ('site_title', 'Joe Point Podcast'),
+  ('tagline', 'Echte verhalen. Open gesprekken. Van Gambia tot Nederland.'),
+  ('intro_title', 'Welkom bij Joe Point'),
+  ('intro_text', E'Joe Point is de podcast van Lamin. Hier praten we over het leven, cultuur, ondernemen, familie en alles wat daartussen zit – met gasten die iets te vertellen hebben.\n\nZet je koptelefoon op en luister mee.'),
+  ('hero_image', ''), ('logo', ''),
+  ('host_name', 'Lamin'), ('host_photo', ''),
+  ('host_intro', 'Host van Joe Point Podcast. Geboren in Gambia, thuis in Nederland.'),
+  ('host_bio', 'Vertel hier wie je bent: waar je bent opgegroeid, wat je doet en wat je drijft.'),
+  ('host_why', 'Waarom deze podcast? Vertel hier hoe het idee ontstond en wat je luisteraars wilt meegeven.'),
+  ('host_background', 'Je achtergrond: Gambia, de stap naar Nederland, werk, familie, en de momenten die je hebben gevormd.'),
+  ('host_mission', 'Onze missie: verhalen een stem geven die je anders niet hoort, en mensen met elkaar verbinden.'),
+  ('contact_email', ''),
+  ('contact_intro', 'Een vraag, samenwerking of wil je zelf te gast zijn? Laat het weten!'),
+  ('question_of_week', 'Wat is één les uit je jeugd die je nog elke dag gebruikt?'),
+  ('question_active', '1'),
+  ('stories_intro', 'Iedereen heeft een verhaal. Of je nu uit Gambia komt, in de diaspora woont of gewoon iets wilt delen – stuur je verhaal en een foto in. Na goedkeuring verschijnt het hier.'),
+  ('social_spotify', ''), ('social_apple', ''), ('social_youtube', ''), ('social_instagram', ''),
+  ('social_tiktok', ''), ('social_facebook', ''), ('social_x', ''), ('social_linkedin', ''), ('social_whatsapp', ''),
+  ('footer_text', 'Joe Point Podcast — gemaakt met liefde, van Banjul tot Nederland.'),
+  ('theme_mode', 'dark'), ('color_bg', '#0d0b0a'), ('color_primary', '#f5a524'),
+  ('color_accent', '#ff6a1a'), ('color_accent2', '#ffd27a'), ('font_display', 'anton')
+on conflict (key) do nothing;
+
+insert into public.categories (name, slug, sort) values
+  ('Leven & Cultuur', 'leven-en-cultuur', 0),
+  ('Ondernemen', 'ondernemen', 1),
+  ('Gambia & Diaspora', 'gambia-en-diaspora', 2),
+  ('Familie & Relaties', 'familie-en-relaties', 3),
+  ('Gezondheid & Mindset', 'gezondheid-en-mindset', 4)
+on conflict (slug) do nothing;
+
+do $$
+declare g bigint; e bigint;
+begin
+  if not exists (select 1 from public.episodes) then
+    insert into public.guests (name, slug, tagline, bio)
+    values ('Voorbeeldgast', 'voorbeeldgast', 'Ondernemer & verhalenverteller',
+            'Dit is een voorbeeldgast. Pas de naam, bio, foto en socials aan in het beheerscherm onder **Gasten**, of verwijder deze gast.')
+    returning id into g;
+
+    insert into public.episodes (title, slug, number, season, excerpt, shownotes, category_id, status, duration)
+    values ('Aflevering 1 — Waar het allemaal begon', 'aflevering-1-waar-het-allemaal-begon', 1, 1,
+      'In de allereerste aflevering vertelt Lamin over zijn jeugd in Gambia, de stap naar Nederland en waarom hij Joe Point is begonnen.',
+      E'## In deze aflevering\n\n- Opgroeien in Gambia\n- De eerste jaren in Nederland\n- Waarom een podcast?\n\n## Tijdstempels\n\n- 00:00 Intro\n- 03:15 Jeugd in Gambia\n- 18:40 Naar Nederland\n- 34:10 Het idee achter Joe Point\n\n*Dit is een voorbeeldaflevering – pas hem aan of verwijder hem in het beheerscherm.*',
+      (select id from public.categories where slug = 'leven-en-cultuur'), 'published', '45 min')
+    returning id into e;
+    insert into public.episode_guests values (e, g);
+
+    insert into public.posts (title, slug, type, excerpt, body, status)
+    values ('Joe Point Podcast is live!', 'joe-point-podcast-is-live', 'nieuws',
+      'De website van Joe Point is online. Hier vind je alle afleveringen, gasten, nieuws en verhalen uit de community.',
+      E'De website van Joe Point is online! Hier vind je straks:\n\n- Alle afleveringen met show notes\n- De gasten die langskwamen\n- Verhalen uit de community\n\nHeb je een onderwerp dat je graag terughoort? Laat het weten via **Doe mee**.',
+      'published');
+
+    insert into public.stories (name, location, title, body, status, approved_at)
+    values ('Voorbeeld', 'Serekunda, Gambia', 'Een voorbeeldverhaal',
+      'Zo ziet een goedgekeurd community-verhaal eruit. Luisteraars sturen hun verhaal en foto in via het formulier; Lamin keurt het goed in het beheerscherm voordat het hier verschijnt.',
+      'approved', now());
+  end if;
+end $$;
+
+-- =====================================================================
+--  BEHEERDER — vul hier het e-mailadres in waarmee Lamin inlogt
+--  (maak die gebruiker aan via Authentication → Users → Add user)
+-- =====================================================================
+insert into public.admins (email) values ('VUL-HIER-HET-EMAILADRES-IN@voorbeeld.nl')
+on conflict do nothing;

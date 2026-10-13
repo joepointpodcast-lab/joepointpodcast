@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Joe Point Podcast</title>
+<meta name="description" content="Joe Point Podcast — echte verhalen, open gesprekken. Van Gambia tot Nederland.">
+<meta property="og:title" content="Joe Point Podcast">
+<meta property="og:description" content="Echte verhalen, open gesprekken. Van Gambia tot Nederland.">
+<meta property="og:type" content="website">
+<link rel="alternate" type="application/rss+xml" title="Joe Point Podcast" href="/feed">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="/assets/css/site.css">
+<script>
+  // Laatst gebruikte huisstijl direct toepassen (voorkomt een flits van de standaardkleuren)
+  try { var t = JSON.parse(localStorage.getItem('jp-theme') || 'null'); if (t) for (var k in t) document.documentElement.style.setProperty(k, t[k]); } catch (e) {}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Naar inhoud</a>
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="brand" href="/" id="brand"><span class="brand-text">Joe Point<small>Podcast</small></span></a>
+    <button class="menu-btn" aria-expanded="false" aria-controls="menu"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span class="sr">Menu</span></button>
+    <nav id="menu" class="nav" aria-label="Hoofdmenu"></nav>
+  </div>
+</header>
+<main id="main"><div class="loading"><div class="spinner" role="status" aria-label="Laden"></div></div></main>
+<footer class="site-footer" id="footer"></footer>
+<div class="toast" id="toast" aria-live="polite"></div>
+<noscript><p style="padding:2rem;text-align:center">Zet JavaScript aan om deze site te bekijken.</p></noscript>
+<script src="/assets/vendor/supabase.js"></script>
+<script type="module" src="/assets/js/app.js"></script>
+</body>
+</html>

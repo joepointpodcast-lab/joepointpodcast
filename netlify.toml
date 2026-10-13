@@ -1,0 +1,25 @@
+# Joe Point Podcast — Netlify-configuratie
+[build]
+  publish = "site"
+  functions = "netlify/functions"
+  edge_functions = "netlify/edge-functions"
+
+# Alle pagina's worden door de app zelf getoond (single page app)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "SAMEORIGIN"
+    Permissions-Policy = "microphone=(self), camera=(), geolocation=()"
+
+[[headers]]
+  for = "/admin/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Cache-Control = "no-store"
