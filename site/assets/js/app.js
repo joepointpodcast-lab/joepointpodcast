@@ -32,6 +32,8 @@ async function boot() {
   CATS = cats || [];
   applyTheme(S);
   renderChrome();
+  // Message from the admin after saving ("Saved — the episode is live")
+  try { const m = sessionStorage.getItem('jp-flash'); if (m) { sessionStorage.removeItem('jp-flash'); setTimeout(() => toast('ok', '✓ ' + m), 300); } } catch { /* no storage */ }
   await checkAdmin();
   route();
 }
@@ -110,6 +112,7 @@ function render(title, html, desc) {
 
 function afterRender() {
   bindForms();
+  bindTimestamps();
   renderAdminBar();
   if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
 }
@@ -191,11 +194,13 @@ async function renderAdminBar() {
     bar.className = 'adminbar';
     document.querySelector('.site-header').after(bar);
   }
-  const link = (label, hash, cls = '') => `<a class="ab-btn ${cls}" href="/admin/${hash}">${e(label)}</a>`;
+  // ?return=… → after saving, the admin brings Lamin straight back to this page
+  const here = encodeURIComponent(location.pathname + location.search);
+  const link = (label, hash, cls = '', back = true) => `<a class="ab-btn ${cls}" href="/admin/${hash}${back ? (hash.includes('?') ? '&' : '?') + 'return=' + here : ''}">${e(label)}</a>`;
   bar.innerHTML = `<div class="wrap ab-inner">
     <span class="ab-label" title="Only you can see this bar">🔑 Admin</span>
     <div class="ab-actions">${ACTIONS.map(([l, h], i) => link(l, h, i === 0 ? 'ab-main' : '')).join('')}</div>
-    <div class="ab-right">${link('📥 Inbox', '#/inbox', 'ab-count" data-c="inbox')}${link('📝 Stories', '#/stories/pending', 'ab-count" data-c="stories')}${link('🏠 Dashboard', '#/')}</div>
+    <div class="ab-right">${link('📥 Inbox', '#/inbox', 'ab-count" data-c="inbox')}${link('📝 Stories', '#/stories/pending', 'ab-count" data-c="stories')}${link('🏠 Dashboard', '#/', '', false)}</div>
   </div>`;
   // live counters
   const [{ count: unread }, { count: pending }] = await Promise.all([
@@ -372,22 +377,30 @@ async function viewEpisodes(_, q) {
   const cat = CATS.find((c) => c.slug === catSlug) || null;
   const page = pageNum(q);
 
-  let query = publishedEpisodes();
-  if (cat) query = query.eq('category_id', cat.id);
+  let epIds = [], like = '';
   if (term) {
     const clean = term.replace(/[%_,()*"\\]/g, ' ').trim();
-    const like = `%${clean}%`;
+    like = `%${clean}%`;
     const { data: gs } = await sb.from('guests').select('id').ilike('name', like);
-    let epIds = [];
     if (gs?.length) {
       const { data: eg } = await sb.from('episode_guests').select('episode_id').in('guest_id', gs.map((g) => g.id));
       epIds = (eg || []).map((r) => r.episode_id);
     }
-    const ors = [`title.ilike."${like}"`, `excerpt.ilike."${like}"`, `shownotes.ilike."${like}"`];
-    if (epIds.length) ors.push(`id.in.(${epIds.join(',')})`);
-    query = query.or(ors.join(','));
   }
-  const { data, count } = await query.order('published_at', { ascending: false }).range((page - 1) * PAGE, page * PAGE - 1).then(must);
+  const run = (withTranscript) => {
+    let query = publishedEpisodes();
+    if (cat) query = query.eq('category_id', cat.id);
+    if (term) {
+      const ors = [`title.ilike."${like}"`, `excerpt.ilike."${like}"`, `shownotes.ilike."${like}"`];
+      if (withTranscript) ors.push(`transcript.ilike."${like}"`);   // also search inside what was said
+      if (epIds.length) ors.push(`id.in.(${epIds.join(',')})`);
+      query = query.or(ors.join(','));
+    }
+    return query.order('published_at', { ascending: false }).range((page - 1) * PAGE, page * PAGE - 1);
+  };
+  let res = await run(true);
+  if (res.error && term) res = await run(false);   // database not updated yet → search without transcript
+  const { data, count } = must(res);
 
   const chip = (label, slug) => {
     const p = new URLSearchParams(); if (slug) p.set('category', slug); if (term) p.set('q', term);
@@ -414,7 +427,8 @@ async function viewEpisodes(_, q) {
 }
 
 async function viewEpisode(slug) {
-  const { data: ep } = await publishedEpisodes().eq('slug', slug).maybeSingle();
+  let { data: ep, error } = await publishedEpisodes(EP_FIELDS + ',transcript,clips').eq('slug', slug).maybeSingle();
+  if (error) ({ data: ep } = await publishedEpisodes().eq('slug', slug).maybeSingle());   // database not updated yet
   if (!ep) return notFound();
   const [guests, prev, next] = await Promise.all([
     guestsOf(ep.id),
@@ -437,6 +451,9 @@ async function viewEpisode(slug) {
       <div>
         <div class="player-box">${episodePlayer(ep) || '<p class="muted">Audio coming soon.</p>'}</div>
         ${ep.shownotes ? `<h2 class="h-sm">Show notes</h2><div class="prose">${md(ep.shownotes)}</div>` : ''}
+        ${clipsHtml(ep.clips)}
+        ${ep.transcript ? `<details class="transcript"><summary><span>📝 Read the transcript</span><small>${Math.max(1, Math.round(ep.transcript.split(/\s+/).length / 200))} min read</small></summary>
+          <div class="transcript-body">${transcriptHtml(ep.transcript)}</div></details>` : ''}
         <div class="share"><span>Share this episode:</span>
           <button class="btn btn-ghost btn-sm" data-share data-title="${e(ep.title)}">Copy link</button>
           <a class="btn btn-ghost btn-sm" target="_blank" rel="noopener" href="https://wa.me/?text=${shareText}">${icon('whatsapp')} WhatsApp</a></div>
@@ -454,6 +471,58 @@ async function viewEpisode(slug) {
       ${prev.data ? `<a class="right" href="/episode/${e(prev.data.slug)}"><small>Older episode →</small>${e(prev.data.title)}</a>` : ''}
     </div>
   </section>`, ep.excerpt || ep.shownotes);
+}
+
+/** Highlights: short clips (YouTube Shorts/videos get a player; TikTok, Instagram, Facebook… get a button) */
+function clipsHtml(text) {
+  const urls = String(text || '').split(/\s+/).map((u) => u.trim()).filter((u) => /^https?:\/\//i.test(u)).slice(0, 12);
+  if (!urls.length) return '';
+  const items = urls.map((u) => {
+    const yt = u.match(/(?:youtube\.com\/(?:shorts\/|watch\?(?:.*&)?v=|embed\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+    if (yt) {
+      const vertical = /shorts\//.test(u);
+      return `<div class="clip${vertical ? ' clip-vertical' : ''}"><iframe src="https://www.youtube-nocookie.com/embed/${yt[1]}" title="Clip" loading="lazy" allow="accelerometer; clipboard-write; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>`;
+    }
+    let host = ''; try { host = new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; }
+    const net = [['tiktok', 'TikTok'], ['instagram', 'Instagram'], ['facebook', 'Facebook'], ['fb.', 'Facebook'], ['x.com', 'X'], ['twitter', 'X'], ['riverside', 'Riverside']].find(([k]) => host.includes(k));
+    const key = net ? net[1].toLowerCase().replace(' ', '') : 'link';
+    return `<a class="clip-link" href="${e(u)}" target="_blank" rel="noopener">${icon(key === 'riverside' ? 'play' : key)} Watch clip${net ? ' on ' + net[1] : ''} ↗</a>`;
+  }).join('');
+  return `<h2 class="h-sm">Highlights</h2><div class="clips">${items}</div>`;
+}
+
+/** Transcript from Riverside: keep line breaks, bold speaker names, make timestamps clickable */
+function transcriptHtml(text) {
+  return String(text || '').replace(/\r\n?/g, '\n').trim().split(/\n{2,}/).map((para) => '<p>' + para.split('\n').map((line) => {
+    let h = e(line);
+    h = h.replace(/^((?:\[)?\d{1,2}:\d{2}(?::\d{2})?(?:\])?)\s*/, (m, t) => `<span class="ts">${t.replace(/[\[\]]/g, '')}</span> `);
+    h = h.replace(/^((?:<span class="ts">[^<]+<\/span> )?)([A-Z][\w .'-]{0,30}?)(:|\s{2,}(?=<span class="ts">|\d))/, (m, ts, name, sep) => `${ts}<strong>${name}</strong>${sep === ':' ? ':' : ' '}`);
+    h = h.replace(/(\s)(\d{1,2}:\d{2}(?::\d{2})?)(?=\s|$)/g, (m, sp, t) => `${sp}<span class="ts">${t}</span>`);
+    return h;
+  }).join('<br>') + '</p>').join('');
+}
+
+/** Clicking a timestamp (12:30) jumps the player to that moment (works for uploaded audio and YouTube) */
+function bindTimestamps() {
+  const box = $main.querySelector('.player-box');
+  if (!box) return;
+  const audio = box.querySelector('audio');
+  const yt = box.querySelector('iframe[src*="youtube"]');
+  if (!audio && !yt) return;
+  $main.querySelectorAll('.ts').forEach((el) => {
+    el.classList.add('ts-link');
+    el.setAttribute('role', 'button');
+    el.setAttribute('tabindex', '0');
+    el.title = 'Play from here';
+    const go = () => {
+      const secs = el.textContent.trim().split(':').map(Number).reduce((a, b) => a * 60 + b, 0);
+      if (audio) { audio.currentTime = secs; audio.play().catch(() => {}); }
+      else yt.src = yt.src.replace(/[?&](start|autoplay)=\d+/g, '').replace(/(\?|$)/, `?start=${secs}&autoplay=1&`).replace(/[&?]$/, '');
+      box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    el.addEventListener('click', go);
+    el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(); } });
+  });
 }
 
 async function viewGuests() {
@@ -481,7 +550,7 @@ async function viewGuest(slug) {
   const ids = (links || []).map((r) => r.episode_id);
   const eps = ids.length ? (await publishedEpisodes().in('id', ids).order('published_at', { ascending: false })).data || [] : [];
   const soc = {}; ['website', 'instagram', 'tiktok', 'youtube', 'facebook', 'x', 'linkedin'].forEach((k) => { if (g[k]) soc[k] = g[k]; });
-  act(['✏️ Edit this guest', `#/guest/${g.id}`], ['➕ New guest', '#/guest/new']);
+  act(['✏️ Edit this guest', `#/guest/${g.id}`], [`🎙️ New episode with ${g.name}`, `#/episode/new?guest=${g.id}`], ['➕ New guest', '#/guest/new']);
   render(g.name, `
   <section class="page-hero"><div class="wrap guest-head">
     <div class="guest-head-photo">${g.photo ? `<img src="${e(media(g.photo))}" alt="${e(g.name)}">` : `<span class="avatar avatar-xl">${e(g.name[0] || '?')}</span>`}</div>

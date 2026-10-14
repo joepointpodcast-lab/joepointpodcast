@@ -52,6 +52,11 @@ create table if not exists public.episodes (
   updated_at   timestamptz not null default now()
 );
 
+-- Transcript + highlights (also added by update-transcripts.sql)
+alter table public.episodes add column if not exists transcript text not null default '';
+alter table public.episodes add column if not exists clips      text not null default '';
+alter table public.episodes alter column status set default 'published';
+
 create table if not exists public.guests (
   id         bigint generated always as identity primary key,
   name       text not null,

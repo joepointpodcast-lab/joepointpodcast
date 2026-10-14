@@ -79,6 +79,11 @@ Na het uploaden van deze versie één keer in Supabase → **SQL Editor** de inh
 - zijn nieuwe nieuwsberichten standaard meteen **Live**;
 - worden nieuwsberichten die per ongeluk als concept (draft) waren blijven staan, alsnog live gezet.
 
+## Update: transcript en highlights (Riverside)
+
+**Eerst** in Supabase → **SQL Editor** de inhoud van `supabase/update-transcripts.sql` plakken en op **Run** klikken, **daarna** de bestanden in GitHub uploaden en committen.
+Bij elke aflevering kan Lamin dan het transcript uit Riverside plakken (wordt doorzoekbaar en uitklapbaar op de site, tijden worden klikbaar) en links naar korte clips (YouTube Shorts krijgen een speler).
+
 ## Wat Lamin zelf kan (via /admin)
 
 - **Afleveringen**: titel, samenvatting, show notes, link naar Spotify/YouTube/Apple/SoundCloud (de speler verschijnt vanzelf), cover, gasten en categorie. Afleveringen kunnen ook ingepland worden.

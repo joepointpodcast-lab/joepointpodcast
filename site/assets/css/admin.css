@@ -192,3 +192,12 @@ audio { width: 100%; }
 .auth-box { background: var(--surface); padding: 2rem; border-radius: 18px; width: min(420px, 100%); display: flex; flex-direction: column; gap: 1rem; }
 .auth-box .side-brand { color: var(--ink); padding: 0; }
 .auth-box h1 { font-size: 1.4rem; }
+
+/* Back to the website */
+.back-site { margin: 0 0 1rem; padding: .7rem 1rem; border-radius: 10px; background: #fff8eb; border: 1px solid var(--accent); }
+.back-site a { font-weight: 700; text-decoration: none; }
+.back-site small { color: var(--muted); margin-left: .4rem; }
+.side-brand { text-decoration: none; }
+.side-nav .to-site { margin-bottom: .5rem; background: rgba(245,165,36,.16); color: var(--accent); opacity: 1; font-weight: 600; }
+.side-nav .to-site:hover { background: rgba(245,165,36,.26); }
+.btn-row-admin { display: flex; flex-wrap: wrap; gap: .5rem; }

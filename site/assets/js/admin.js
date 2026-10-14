@@ -9,6 +9,26 @@ const $app = document.getElementById('app');
 let S = {};
 let pendingFlash = null;
 let dirty = false;
+let PARAMS = new URLSearchParams();   // e.g. #/episode/new?guest=3&return=/guest/joro
+
+/** Where did Lamin come from on the website? (only safe, local paths) */
+function returnPath() {
+  const r = PARAMS.get('return') || '';
+  return /^\/(?!\/)(?!admin)/.test(r) ? r : '';
+}
+const isLive = (row) => row && row.status !== 'draft' && row.status !== 'pending' && row.status !== 'rejected' && (!row.published_at || new Date(row.published_at) <= new Date());
+
+/** If he came from the website: go back there (to `path` or where he came from) and show the message there */
+function backToSite(msg, path) {
+  const ret = returnPath();
+  if (!ret) return false;
+  try { sessionStorage.setItem('jp-flash', msg); } catch { /* no storage */ }
+  dirty = false;
+  location.href = path || ret;
+  return true;
+}
+/** After deleting: don't return to the page of the thing that was just deleted */
+const afterDelete = (ownPath, listPath) => (returnPath() === ownPath ? listPath : '');
 
 /* =========================================================
    Start-up & login
@@ -47,7 +67,7 @@ async function loadSettings() {
 function authScreen(inner) {
   document.body.className = 'auth';
   $app.className = '';
-  $app.innerHTML = `<div class="auth-box"><div class="side-brand"><span>${icon('mic')}</span> Joe Point <small>admin</small></div><div id="auth-flash"></div>${inner}</div>`;
+  $app.innerHTML = `<div class="auth-box"><a class="side-brand" href="/" title="Go to the website"><span>${icon('mic')}</span> Joe Point <small>admin</small></a><div id="auth-flash"></div>${inner}</div>`;
 }
 const authFlash = (type, msg) => { document.getElementById('auth-flash').innerHTML = `<div class="flash flash-${type}">${e(msg)}</div>`; };
 
@@ -122,13 +142,18 @@ async function route() {
     return;
   }
   dirty = false;
-  const [page = 'dashboard', arg = ''] = location.hash.replace(/^#\/?/, '').split('/');
+  const [pathPart, qs = ''] = location.hash.replace(/^#\/?/, '').split('?');
+  const [page = 'dashboard', arg = ''] = pathPart.split('/');
+  PARAMS = new URLSearchParams(qs);
   route.last = location.hash;
   const view = VIEWS[page] || viewDashboard;
   await shell(page);
   const main = document.getElementById('main');
   main.innerHTML = '<p class="muted">Loading…</p>';
-  try { await view(arg, main); }
+  try {
+    await view(arg, main);
+    if (returnPath()) main.insertAdjacentHTML('afterbegin', `<p class="back-site"><a href="${e(returnPath())}">← Back to the website</a></p>`);
+  }
   catch (err) { console.error(err); main.innerHTML = `<div class="flash flash-error">${e(errMsg(err))}</div>`; }
   if (pendingFlash) { flash(...pendingFlash); pendingFlash = null; }
   main.querySelectorAll('form').forEach((f) => f.addEventListener('input', () => { dirty = true; }));
@@ -157,9 +182,9 @@ async function shell(page) {
   $app.className = 'admin';
   $app.innerHTML = `
   <aside class="side">
-    <a class="side-brand" href="#/"><span>${icon('mic')}</span> Joe Point <small>admin</small></a>
+    <a class="side-brand" href="/" title="Go to the website"><span>${icon('mic')}</span> Joe Point <small>admin</small></a>
     <button class="side-toggle" aria-expanded="false" id="tog">${icon('menu')} Menu</button>
-    <nav class="side-nav">${MENU.map(([k, l, ic, m]) => `<a href="#/${k}"${m.includes(page) ? ' aria-current="page"' : ''}>${icon(ic)} ${e(l)}${badge[k] ? `<b class="count">${badge[k]}</b>` : ''}</a>`).join('')}</nav>
+    <nav class="side-nav"><a href="/" class="to-site">${icon('website')} Go to website</a>${MENU.map(([k, l, ic, m]) => `<a href="#/${k}"${m.includes(page) ? ' aria-current="page"' : ''}>${icon(ic)} ${e(l)}${badge[k] ? `<b class="count">${badge[k]}</b>` : ''}</a>`).join('')}</nav>
     <div class="side-foot"><a href="/">View website →</a><a href="#" id="logout">Log out</a></div>
   </aside>
   <main class="main"><div id="flash"></div><div id="main"></div></main>`;
@@ -310,12 +335,13 @@ async function viewEpisode(id, main) {
     isNew ? null : sb.from('episodes').select('*').eq('id', id).single().then(must),
     sb.from('guests').select('id,name').order('name').then(must),
     sb.from('categories').select('*').order('sort').then(must),
-    isNew ? [] : sb.from('episode_guests').select('guest_id').eq('episode_id', id).then(must).then((r) => r.map((x) => x.guest_id)),
+    isNew ? (+PARAMS.get('guest') ? [+PARAMS.get('guest')] : []) : sb.from('episode_guests').select('guest_id').eq('episode_id', id).then(must).then((r) => r.map((x) => x.guest_id)),
     sb.from('episodes').select('number').order('number', { ascending: false, nullsFirst: false }).limit(1).then(must),
   ]);
-  const r = row || { status: 'draft', number: (maxNr[0]?.number || 0) + 1, season: 1 };
+  const r = row || { status: 'published', number: (maxNr[0]?.number || 0) + 1, season: 1 };   // episodes go live straight away
+  const withGuest = isNew && sel.length ? guests.find((g) => g.id === sel[0]) : null;
   main.innerHTML = `
-  <header class="page-head"><div><a class="back" href="#/episodes">← Episodes</a><h1>${isNew ? 'New episode' : 'Edit episode'}</h1></div>
+  <header class="page-head"><div><a class="back" href="#/episodes">← Episodes</a><h1>${isNew ? (withGuest ? `New episode with ${e(withGuest.name)}` : 'New episode') : 'Edit episode'}</h1></div>
     ${row?.status === 'published' ? `<a class="btn btn-ghost"  href="/episode/${e(row.slug)}">View on site →</a>` : ''}</header>
   <form class="edit-grid" id="f">
     <div class="stack">
@@ -323,6 +349,10 @@ async function viewEpisode(id, main) {
         ${fText('title', 'Title', r.title, { required: true, placeholder: 'e.g. Episode 12 — Doing business between two cultures' })}
         ${fArea('excerpt', 'Short summary', r.excerpt, { rows: 3, help: '1–3 sentences. Shown on the overview page, in Google and in the WhatsApp preview.' })}
         ${fArea('shownotes', 'Show notes', r.shownotes, { rows: 14, md: true, help: 'Topics, timestamps (e.g. <code>- 12:30 About family</code>), links and tips. ' + MD_HELP })}
+      </section>
+      <section class="panel stack"><h2>From Riverside (optional)</h2>
+        ${fArea('transcript', 'Transcript', r.transcript, { rows: 8, help: 'In Riverside: open the recording → <b>Transcript</b> → copy everything and paste it here. Visitors can read along, Google finds the episode better, and the search on the site also searches what was said. Times like 12:30 become clickable.' })}
+        ${fArea('clips', 'Highlights / clips', r.clips, { rows: 4, help: 'One link per line — for example your Riverside <b>Magic Clips</b> after posting them on YouTube Shorts, TikTok or Instagram. YouTube clips get a player on the page.' })}
       </section>
       <section class="panel stack"><h2>Audio or video</h2>
         ${fText('media_url', 'Link to the episode', r.media_url, { attrs: ' inputmode="url"', placeholder: 'https://open.spotify.com/episode/…', help: 'Paste a link from <b>Spotify, YouTube, Apple Podcasts or SoundCloud</b> — the player appears automatically. Recommended: it uses no storage.' })}
@@ -333,7 +363,7 @@ async function viewEpisode(id, main) {
     </div>
     <aside class="stack">
       <section class="panel stack">
-        ${fSelect('status', 'Status', r.status, { published: 'Live', draft: 'Draft (not visible)' })}
+        ${fSelect('status', 'Status', r.status, { published: 'Live (visible right away)', draft: 'Draft (only you can see it)' })}
         ${fText('published_at', 'Publish date', toLocalInput(r.published_at), { type: 'datetime-local', help: 'A date in the future = scheduled automatically.' })}
         <div class="row-2">${fText('number', 'Episode no.', r.number, { type: 'number' })}${fText('season', 'Season', r.season, { type: 'number' })}</div>
         ${fText('duration', 'Duration', r.duration, { placeholder: 'e.g. 52 min' })}
@@ -354,6 +384,7 @@ async function viewEpisode(id, main) {
     if (action === 'delete') {
       must(await sb.from('episodes').delete().eq('id', row.id));
       await trash([row.cover, row.audio]);
+      if (backToSite('Episode deleted.', afterDelete(`/episode/${row.slug}`, '/episodes'))) return;
       return go('#/episodes', ['ok', 'Episode deleted.']);
     }
     const audioFile = form.querySelector('input[name=audio]').files[0];
@@ -364,6 +395,7 @@ async function viewEpisode(id, main) {
       title: v(fd, 'title'),
       slug: await uniqueSlug('episodes', v(fd, 'slug') || v(fd, 'title'), row?.id),
       excerpt: v(fd, 'excerpt'), shownotes: v(fd, 'shownotes'),
+      transcript: String(fd.get('transcript') ?? '').trim(), clips: v(fd, 'clips'),
       media_url: validUrl(v(fd, 'media_url')), duration: v(fd, 'duration'),
       number: v(fd, 'number') ? +v(fd, 'number') : null, season: v(fd, 'season') ? +v(fd, 'season') : null,
       category_id: v(fd, 'category_id') ? +v(fd, 'category_id') : null,
@@ -372,13 +404,15 @@ async function viewEpisode(id, main) {
       cover: cover.value, audio: audio.value, updated_at: new Date().toISOString(),
     };
     const saved = row
-      ? must(await sb.from('episodes').update(data).eq('id', row.id).select('id').single())
-      : must(await sb.from('episodes').insert(data).select('id').single());
+      ? must(await sb.from('episodes').update(data).eq('id', row.id).select('id,slug').single())
+      : must(await sb.from('episodes').insert(data).select('id,slug').single());
     must(await sb.from('episode_guests').delete().eq('episode_id', saved.id));
     const gs = fd.getAll('guests').map((g) => ({ episode_id: saved.id, guest_id: +g }));
     if (gs.length) must(await sb.from('episode_guests').insert(gs));
     await trash([...cover.trash, ...audio.trash]);
-    go(`#/episode/${saved.id}`, ['ok', 'Episode saved.']);
+    const epMsg = data.status === 'draft' ? 'Saved as draft — not visible on the site yet.' : (new Date(data.published_at) > new Date() ? 'Saved — it will go live on the publish date.' : 'Saved — the episode is live on the site.');
+    if (backToSite(epMsg, isLive(data) ? `/episode/${saved.slug}` : '')) return;
+    go(`#/episode/${saved.id}`, ['ok', epMsg]);
   });
 }
 
@@ -406,7 +440,7 @@ async function viewGuest(id, main) {
   const r = row || {};
   main.innerHTML = `
   <header class="page-head"><div><a class="back" href="#/guests">← Guests</a><h1>${isNew ? 'New guest' : 'Edit guest'}</h1></div>
-    ${row ? `<a class="btn btn-ghost"  href="/guest/${e(row.slug)}">View guest page →</a>` : ''}</header>
+    ${row ? `<div class="btn-row-admin"><a class="btn" href="#/episode/new?guest=${row.id}">➕ Create an episode with ${e(row.name)}</a><a class="btn btn-ghost" href="/guest/${e(row.slug)}">View guest page →</a></div>` : ''}</header>
   <form class="edit-grid" id="f">
     <div class="stack">
       <section class="panel stack">
@@ -430,19 +464,21 @@ async function viewGuest(id, main) {
     if (action === 'delete') {
       must(await sb.from('guests').delete().eq('id', row.id));
       await trash([row.photo]);
+      if (backToSite('Guest deleted.', afterDelete(`/guest/${row.slug}`, '/guests'))) return;
       return go('#/guests', ['ok', 'Guest deleted.']);
     }
     const photo = await fileField(form, 'photo', row?.photo, 'guests');
     const data = { name: v(fd, 'name'), slug: await uniqueSlug('guests', v(fd, 'slug') || v(fd, 'name'), row?.id), tagline: v(fd, 'tagline'), bio: v(fd, 'bio'), photo: photo.value };
     for (const k of Object.keys(GUEST_SOC)) data[k] = validUrl(v(fd, k));
     const saved = row
-      ? must(await sb.from('guests').update(data).eq('id', row.id).select('id').single())
-      : must(await sb.from('guests').insert(data).select('id').single());
+      ? must(await sb.from('guests').update(data).eq('id', row.id).select('id,slug').single())
+      : must(await sb.from('guests').insert(data).select('id,slug').single());
     must(await sb.from('episode_guests').delete().eq('guest_id', saved.id));
     const links = fd.getAll('episodes').map((x) => ({ episode_id: +x, guest_id: saved.id }));
     if (links.length) must(await sb.from('episode_guests').insert(links));
     await trash(photo.trash);
-    go(`#/guest/${saved.id}`, ['ok', 'Guest saved.']);
+    if (backToSite('Guest saved.', `/guest/${saved.slug}`)) return;
+    go(`#/guest/${saved.id}`, ['ok', row ? 'Guest saved.' : 'Guest saved. Now you can create an episode with this guest (button at the top).']);
   });
 }
 
@@ -532,6 +568,7 @@ async function viewPost(id, main) {
     if (action === 'delete') {
       must(await sb.from('posts').delete().eq('id', row.id));
       await trash([row.image, ...imgs.map((i) => i.file)]);
+      if (backToSite('Post deleted.', afterDelete(`/news/${row.slug}`, '/news'))) return;
       return go('#/posts', ['ok', 'Post deleted.']);
     }
     const image = await fileField(form, 'image', row?.image, 'news');
@@ -542,8 +579,8 @@ async function viewPost(id, main) {
       episode_id: v(fd, 'episode_id') ? +v(fd, 'episode_id') : null, link_url: validUrl(v(fd, 'link_url')), link_label: v(fd, 'link_label'),
     };
     const saved = row
-      ? must(await sb.from('posts').update(data).eq('id', row.id).select('id').single())
-      : must(await sb.from('posts').insert(data).select('id').single());
+      ? must(await sb.from('posts').update(data).eq('id', row.id).select('id,slug').single())
+      : must(await sb.from('posts').insert(data).select('id,slug').single());
     const rm = fd.getAll('rm_img').map(Number);
     for (const im of imgs) {
       if (rm.includes(im.id)) { must(await sb.from('post_images').delete().eq('id', im.id)); await trash([im.file]); }
@@ -557,6 +594,7 @@ async function viewPost(id, main) {
       catch (err) { failed.push(`${f.name}: ${errMsg(err)}`); }
     }
     await trash(image.trash);
+    if (!failed.length && backToSite(data.status === 'draft' ? 'Saved as draft — not visible on the site yet.' : 'Saved — the post is live on the site.', isLive(data) ? `/news/${saved.slug}` : '')) return;
     go(`#/post/${saved.id}`, failed.length ? ['error', 'Saved, but not all photos could be uploaded: ' + failed.join(' · ')] : ['ok', data.status === 'draft' ? 'Saved as draft — not visible on the site yet.' : (new Date(data.published_at) > new Date() ? 'Saved — it will go live on the publish date.' : 'Saved — the post is live on the site.')]);
   });
 }
@@ -631,6 +669,7 @@ async function viewStory(id, main) {
       must(await sb.from('stories').delete().eq('id', row.id));
       await sb.from('private_contacts').delete().eq('kind', 'story').eq('ref_id', row.id);
       await trash([row.photo]); await trash([row.upload_path], 'inbox');
+      if (backToSite('Story deleted.', afterDelete(`/community/${row.id}`, '/community'))) return;
       return go('#/stories/' + row.status, ['ok', 'Story deleted.']);
     }
     const data = { name: v(fd, 'name'), location: v(fd, 'location'), title: v(fd, 'title'), body: v(fd, 'body'), admin_note: v(fd, 'admin_note') };
@@ -656,6 +695,8 @@ async function viewStory(id, main) {
     must(await sb.from('stories').update(data).eq('id', row.id));
     await trash(trashMedia); await trash(trashInbox, 'inbox');
     const msg = { approve: 'Approved — the story is now live.', reject: 'Rejected — the story is not visible.', pending: "Moved back to 'to review'.", save: 'Saved.' }[action];
+    const nowStatus = data.status || row.status;
+    if (backToSite(msg, nowStatus === 'approved' ? `/community/${row.id}` : afterDelete(`/community/${row.id}`, '/community'))) return;
     go(action === 'save' ? `#/story/${row.id}` : `#/stories/${row.status === 'pending' ? 'pending' : row.status}`, ['ok', msg]);
   });
 }
@@ -838,6 +879,7 @@ async function viewSettings(tab, main) {
     }
     must(await sb.from('settings').upsert(rows));
     await trash(trashList);
+    if (backToSite('Saved.')) return;
     go(`#/settings/${tab}`, ['ok', 'Settings saved.']);
   });
 }
