@@ -394,3 +394,43 @@ p { margin: 0 0 1em; }
 .ts-link { cursor: pointer; color: var(--link); border: 1px solid var(--line); }
 .ts-link:hover, .ts-link:focus-visible { background: var(--accent); color: var(--accent-ink); }
 .transcript-body .ts { display: inline-block; font: 600 .8em/1.5 ui-monospace, monospace; background: var(--bg-alt); padding: 0 .45em; border-radius: 6px; margin-right: .3em; }
+
+/* ---------- Social icons in the header ---------- */
+.nav-socials { display: flex; align-items: center; margin-left: .5rem; padding-left: .75rem; border-left: 1px solid var(--line); }
+.nav-socials .socials { margin: 0; gap: .25rem; }
+.nav-socials .socials a { padding: .4em; border-color: transparent; background: transparent; }
+.nav-socials .socials a:hover { border-color: var(--line); }
+@media (max-width: 960px) {
+  .nav-socials { margin: .5rem 0 0; padding: .75rem 1em 0; border-left: 0; border-top: 1px solid var(--line); }
+  .nav-socials .socials a { border-color: var(--line); padding: .55em; }
+}
+
+/* ---------- Share box ---------- */
+.share { flex-wrap: wrap; }
+.share-fb { background: #1877f2; border-color: #1877f2; color: #fff; }
+.share-fb:hover { background: #0f63d1; }
+.ab-fb { background: #1877f2 !important; border-color: #1877f2 !important; color: #fff !important; }
+
+/* ---------- Website credit ---------- */
+.footer-bottom { flex-wrap: wrap; gap: .5rem 1.5rem; align-items: center; }
+.credit { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+.credit-wa { display: inline-flex; align-items: center; gap: .35em; padding: .25em .7em; border-radius: 999px; background: #25d366; color: #08331b !important; font-weight: 600; text-decoration: none; opacity: 1 !important; }
+.credit-wa:hover { filter: brightness(1.05); }
+.credit-wa .ico { width: 1em; height: 1em; }
+.footer-bottom { opacity: 1; color: color-mix(in srgb, var(--band-ink) 70%, transparent); }
+
+/* ---------- Share: in the page header + small button on cards ---------- */
+.page-hero .share { margin-top: 1.25rem; padding-top: 0; border-top: 0; }
+.fb-mini { margin-left: auto; display: inline-flex; align-items: center; gap: .35em; padding: .3em .75em; border-radius: 999px; background: #1877f2; color: #fff !important; font-size: .8rem; font-weight: 600; text-decoration: none; position: relative; z-index: 2; }
+.fb-mini:hover { background: #0f63d1; }
+.fb-mini .ico { width: 1em; height: 1em; }
+.meta-foot { align-items: center; }
+
+/* ---------- Header social icons: calm, small ---------- */
+.nav-socials .socials a { color: var(--muted, currentColor); opacity: .7; padding: .3em; }
+.nav-socials .socials a:hover { opacity: 1; color: var(--link); border-color: transparent; }
+.nav-socials .ico { width: 16px; height: 16px; }
+@media (max-width: 960px) {
+  .nav-socials .socials a { border-color: transparent; padding: .4em; }
+}
+.share-friends .share { justify-content: center; border-top: 0; margin-top: 1rem; padding-top: 0; }

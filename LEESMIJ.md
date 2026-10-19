@@ -84,6 +84,15 @@ Na het uploaden van deze versie één keer in Supabase → **SQL Editor** de inh
 **Eerst** in Supabase → **SQL Editor** de inhoud van `supabase/update-transcripts.sql` plakken en op **Run** klikken, **daarna** de bestanden in GitHub uploaden en committen.
 Bij elke aflevering kan Lamin dan het transcript uit Riverside plakken (wordt doorzoekbaar en uitklapbaar op de site, tijden worden klikbaar) en links naar korte clips (YouTube Shorts krijgen een speler).
 
+## Update: delen op Facebook, socials en WhatsApp-knop
+
+Geen SQL nodig: alleen de bestanden uploaden in GitHub en op **Commit changes** klikken.
+- Onder elke aflevering, gast, nieuwsbericht en verhaal staan knoppen **Facebook**, **WhatsApp** en **Copy link**. In de gouden balk (als Lamin is ingelogd) staat een blauwe knop **📣 Share on Facebook**: die opent Facebook én kopieert een kant-en-klare tekst om te plakken.
+- Facebook-knop: op de **telefoon** opent het deelmenu van de telefoon (kies de Facebook-app), op de **computer** een klein Facebook-venster boven de site.
+- Delen staat bovenaan elke aflevering, gast en nieuwsbericht; op de lijsten heeft elke kaart een blauwe **Share**-knop. Bezoekers hebben ook **Share with friends** (telefoon: deelmenu met WhatsApp, Messenger, sms…; computer: link kopiëren) en op de homepage een blok "Enjoying Joe Point?".
+- **Settings → Social media**: Facebook, Instagram, YouTube en TikTok invullen. Alleen ingevulde links verschijnen (bovenin als icoon, onderaan en op de contactpagina).
+- **Settings → Website credit**: naam en WhatsApp-nummer van de websitebouwer. Onderaan de site verschijnt dan "Website by … · Want a website like this?" met een WhatsApp-knop. Leeg laten = niets tonen.
+
 ## Wat Lamin zelf kan (via /admin)
 
 - **Afleveringen**: titel, samenvatting, show notes, link naar Spotify/YouTube/Apple/SoundCloud (de speler verschijnt vanzelf), cover, gasten en categorie. Afleveringen kunnen ook ingepland worden.

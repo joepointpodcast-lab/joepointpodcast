@@ -770,11 +770,15 @@ async function viewMessage(id, main) {
 /* =========================================================
    Settings
    ========================================================= */
-const TABS = { general: 'Homepage & general', style: 'Look & feel', host: 'About Lamin', contact: 'Contact & socials', getinvolved: 'Get involved', account: 'Password' };
+const TABS = { general: 'Homepage & general', style: 'Look & feel', host: 'About Lamin', social: 'Social media', contact: 'Contact', getinvolved: 'Get involved', credit: 'Website credit', account: 'Password' };
 
 function settingsFields() {
   const soc = {};
-  for (const [k, l] of Object.entries(NETWORKS)) soc['social_' + k] = [l, k === 'whatsapp' ? 'text' : 'url', k === 'whatsapp' ? 'Phone number (e.g. +31612345678) or link' : ''];
+  for (const [k, l] of Object.entries(NETWORKS)) {
+    const main = ['facebook', 'instagram', 'youtube', 'tiktok'].includes(k);
+    soc['social_' + k] = [l, k === 'whatsapp' ? 'text' : 'url', k === 'whatsapp' ? 'Phone number (e.g. +31612345678) or link'
+      : `Paste the link to your ${l} page${k === 'facebook' ? ', e.g. https://www.facebook.com/joepointpodcast' : ''}. Empty = not shown on the site.${main ? ' Also shown as an icon at the top of the site.' : ''}`];
+  }
   return {
     general: {
       site_title: ['Podcast name', 'text'],
@@ -800,7 +804,12 @@ function settingsFields() {
       host_bio: ['Who is Lamin?', 'md'], host_why: ['Why this podcast?', 'md'],
       host_background: ['Background', 'md'], host_mission: ['Mission', 'md'],
     },
-    contact: { contact_email: ['Email address (shown on the contact page)', 'email'], contact_intro: ['Contact page text', 'text'], ...soc },
+    social: soc,
+    contact: { contact_email: ['Email address (shown on the contact page)', 'email'], contact_intro: ['Contact page text', 'text'] },
+    credit: {
+      credit_name: ['Website made by', 'text', 'Shown at the bottom of every page, e.g. "Website by Monique". Leave empty to hide.'],
+      credit_whatsapp: ['WhatsApp number of the website builder', 'text', 'Full number with country code, e.g. +31612345678. Visitors who want a website can send a WhatsApp message. Leave empty to hide the button.'],
+    },
     getinvolved: {
       question_active: ['Show the question of the week', 'check'],
       question_of_week: ['Question of the week', 'text', 'New question? Change it here. Answers in the inbox remember which question they belong to.'],

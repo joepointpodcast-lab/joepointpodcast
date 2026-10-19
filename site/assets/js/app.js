@@ -102,6 +102,31 @@ document.addEventListener('click', (ev) => {
 });
 window.addEventListener('popstate', route);
 
+// Facebook share: copy a ready-made text (Lamin only has to paste it), then
+// - phone/tablet: open the phone's own share menu → pick the Facebook app (already logged in there)
+// - computer: open Facebook's share window as a small pop-up on top of the site
+const isTouch = () => matchMedia('(pointer: coarse)').matches;
+document.addEventListener('click', (ev) => {
+  const a = ev.target.closest('[data-caption]');
+  if (!a) return;
+  ev.preventDefault();
+  const cap = a.dataset.caption || '';
+  const pageUrl = a.dataset.url || location.origin + location.pathname;
+  if (cap) navigator.clipboard?.writeText(cap).then(
+    () => toast('ok', IS_ADMIN
+      ? '📋 Text copied — paste it in your post. Tip: post on the podcast page, then share it from there to your own profile.'
+      : '📋 Text copied — paste it in your Facebook post.'),
+    () => {});
+  if (isTouch() && navigator.share) {
+    navigator.share({ url: pageUrl }).catch(() => {});
+    return;
+  }
+  const w = 620, h = 640;
+  const left = Math.max(0, (screenX || 0) + (outerWidth - w) / 2), top = Math.max(0, (screenY || 0) + (outerHeight - h) / 3);
+  const win = window.open(a.href, 'fbshare', `popup=yes,width=${w},height=${h},left=${left},top=${top}`);
+  if (!win) window.open(a.href, '_blank', 'noopener');
+}, true);
+
 function render(title, html, desc) {
   const site = S.site_title || 'Joe Point Podcast';
   document.title = title ? `${title} — ${site}` : `${site} — ${S.tagline || ''}`;
@@ -148,7 +173,9 @@ function renderChrome() {
     if (!fav) { fav = document.createElement('link'); fav.rel = 'icon'; document.head.appendChild(fav); }
     fav.href = media(S.logo);
   }
-  document.getElementById('menu').innerHTML = MENU().map(([s, l]) => `<a href="/${s}" data-nav="${s}">${e(l)}</a>`).join('');
+  const mainSoc = Object.fromEntries(['facebook', 'instagram', 'youtube', 'tiktok'].filter((k) => S['social_' + k]).map((k) => [k, S['social_' + k]]));
+  document.getElementById('menu').innerHTML = MENU().map(([s, l]) => `<a href="/${s}" data-nav="${s}">${e(l)}</a>`).join('')
+    + (Object.keys(mainSoc).length ? `<div class="nav-socials">${socialsHtml(mainSoc)}</div>` : '');
   document.getElementById('footer').innerHTML = `
     <div class="wrap footer-grid">
       <div><div class="footer-brand">${e(S.site_title || 'Joe Point Podcast')}</div><p class="muted">${e(S.footer_text)}</p>${socialsHtml(siteSocials(S))}</div>
@@ -160,10 +187,19 @@ function renderChrome() {
         <li><a href="/contact">Contact</a></li>
         <li><a href="#install" data-install>📲 Add to home screen</a></li></ul></div>
     </div>
-    <div class="wrap footer-bottom"><span>© ${new Date().getFullYear()} ${e(S.site_title || 'Joe Point Podcast')}</span><a href="/feed">RSS</a></div>`;
+    <div class="wrap footer-bottom"><span>© ${new Date().getFullYear()} ${e(S.site_title || 'Joe Point Podcast')}</span>${creditHtml()}<a href="/feed">RSS</a></div>`;
   const btn = document.querySelector('.menu-btn');
   btn.onclick = () => { const open = document.getElementById('menu').classList.toggle('open'); btn.setAttribute('aria-expanded', open); };
 }
+/** "Website by …" with a WhatsApp button to the website builder (only if filled in under Settings) */
+function creditHtml() {
+  const num = String(S.credit_whatsapp || '').replace(/\D/g, '');
+  const name = S.credit_name || '';
+  if (!num && !name) return '';
+  const msg = encodeURIComponent(`Hi${name ? ' ' + name : ''}! I saw the ${S.site_title || 'Joe Point Podcast'} website and I would like a website too.`);
+  return `<span class="credit">Website by ${e(name || 'us')}${num ? ` · <a class="credit-wa" href="https://wa.me/${num}?text=${msg}" target="_blank" rel="noopener">${icon('whatsapp')} Want a website like this?</a>` : ''}</span>`;
+}
+
 function closeMenu() { document.getElementById('menu')?.classList.remove('open'); }
 function setNav(path) {
   const first = path.split('/')[1] || '';
@@ -199,7 +235,9 @@ async function renderAdminBar() {
   const link = (label, hash, cls = '', back = true) => `<a class="ab-btn ${cls}" href="/admin/${hash}${back ? (hash.includes('?') ? '&' : '?') + 'return=' + here : ''}">${e(label)}</a>`;
   bar.innerHTML = `<div class="wrap ab-inner">
     <span class="ab-label" title="Only you can see this bar">🔑 Admin</span>
-    <div class="ab-actions">${ACTIONS.map(([l, h], i) => link(l, h, i === 0 ? 'ab-main' : '')).join('')}</div>
+    <div class="ab-actions">${ACTIONS.map(([l, h, cap], i) => (/^https?:/.test(h)
+      ? `<a class="ab-btn ab-fb" href="${e(h)}" target="_blank" rel="noopener" data-caption="${e(cap || '')}">${e(l)}</a>`
+      : link(l, h, i === 0 ? 'ab-main' : ''))).join('')}</div>
     <div class="ab-right">${link('📥 Inbox', '#/inbox', 'ab-count" data-c="inbox')}${link('📝 Stories', '#/stories/pending', 'ab-count" data-c="stories')}${link('🏠 Dashboard', '#/', '', false)}</div>
   </div>`;
   // live counters
@@ -246,7 +284,7 @@ function episodeCard(ep) {
       <div class="meta">${ep.number ? `<span>Ep. ${+ep.number}</span>` : ''}${cat ? `<span class="tag">${e(cat)}</span>` : ''}</div>
       <h3><a href="/episode/${e(ep.slug)}">${e(ep.title)}</a></h3>
       <p>${e(excerpt(ep.excerpt || ep.shownotes, 130))}</p>
-      <div class="meta meta-foot"><span>${fmtDate(ep.published_at)}</span>${ep.duration ? `<span>${icon('clock')} ${e(ep.duration)}</span>` : ''}</div>
+      <div class="meta meta-foot"><span>${fmtDate(ep.published_at)}</span>${ep.duration ? `<span>${icon('clock')} ${e(ep.duration)}</span>` : ''}${fbMini('/episode/' + ep.slug, ep.title, ep.excerpt || ep.shownotes)}</div>
     </div></article>`;
 }
 
@@ -262,7 +300,7 @@ function postCard(p) {
     ${p.image ? `<a href="/news/${e(p.slug)}" class="post-img" tabindex="-1" aria-hidden="true"><img src="${e(media(p.image))}" alt="" loading="lazy"></a>` : ''}
     <div class="card-body"><div class="meta"><span class="tag tag-${e(p.type)}">${e(POST_TYPES[p.type] || 'News')}</span><span>${fmtDate(p.published_at)}</span></div>
       <h3><a href="/news/${e(p.slug)}">${e(p.title)}</a></h3><p>${e(excerpt(p.excerpt || p.body, 140))}</p>
-      ${p.episode_id || p.link_url ? `<div class="meta meta-foot">${p.episode_id ? `<span>${icon('headphones')} Episode</span>` : ''}${p.link_url ? `<span>${icon('link')} Link</span>` : ''}</div>` : ''}</div></article>`;
+      <div class="meta meta-foot">${p.episode_id ? `<span>${icon('headphones')} Episode</span>` : ''}${p.link_url ? `<span>${icon('link')} Link</span>` : ''}${fbMini('/news/' + p.slug, p.title, p.excerpt || p.body)}</div></div></article>`;
 }
 
 function pager(page, total, per) {
@@ -289,7 +327,7 @@ async function viewHome() {
   const hero = S.hero_image || S.host_photo;
   const platforms = Object.fromEntries(Object.entries(siteSocials(S)).filter(([k]) => ['spotify', 'apple', 'youtube'].includes(k)));
   const firstGuests = first ? await guestsOf(first.id) : [];
-  act(['✏️ Edit homepage text & photo', '#/settings/general'], ['🎨 Colours & logo', '#/settings/style'], ['➕ New episode', '#/episode/new'], ['➕ News post', '#/post/new']);
+  act(['✏️ Edit homepage text & photo', '#/settings/general'], ['🎨 Colours & logo', '#/settings/style'], ['🔗 Social media links', '#/settings/social'], ['➕ New episode', '#/episode/new'], ['➕ News post', '#/post/new']);
 
   render('', `
   <section class="hero"><div class="wrap hero-grid">
@@ -346,6 +384,9 @@ async function viewHome() {
     <div class="section-head"><h2>News & updates</h2><a class="link-arrow" href="/news">See all ${icon('arrow')}</a></div>
     ${grid(news.data, postCard)}</div></section>` : ''}
 
+  <section class="section share-friends"><div class="wrap narrow center"><h2>Enjoying ${e(S.site_title || 'Joe Point')}?</h2>
+    <p class="muted">Share the podcast with your friends and family.</p>
+    ${shareBox('', S.site_title || 'Joe Point Podcast', S.tagline || '')}</div></section>
   ${Object.keys(siteSocials(S)).length ? `<section class="section band follow"><div class="wrap center"><h2>Follow Joe Point</h2>${socialsHtml(siteSocials(S), true)}</div></section>` : ''}
   `, S.intro_text);
 }
@@ -435,8 +476,7 @@ async function viewEpisode(slug) {
     publishedEpisodes('title,slug').lt('published_at', ep.published_at).order('published_at', { ascending: false }).limit(1).maybeSingle(),
     publishedEpisodes('title,slug').gt('published_at', ep.published_at).order('published_at', { ascending: true }).limit(1).maybeSingle(),
   ]);
-  const shareText = encodeURIComponent(ep.title + ' — ' + location.href);
-  act(['✏️ Edit this episode', `#/episode/${ep.id}`], ['➕ New episode', '#/episode/new']);
+  act(['✏️ Edit this episode', `#/episode/${ep.id}`], ['📣 Share on Facebook', fbShareUrl(), caption(ep.title, ep.excerpt || ep.shownotes)], ['➕ New episode', '#/episode/new']);
   render(ep.title, `
   <section class="page-hero ep-hero"><div class="wrap ep-head">
     <div class="ep-head-cover">${ep.cover ? `<img src="${e(media(ep.cover))}" alt="">` : coverFallback(ep.number)}</div>
@@ -445,6 +485,7 @@ async function viewEpisode(slug) {
       <h1>${e(ep.title)}</h1>
       <div class="meta"><span>${fmtDate(ep.published_at)}</span>${ep.duration ? `<span>${icon('clock')} ${e(ep.duration)}</span>` : ''}</div>
       ${ep.excerpt ? `<p class="lead">${e(ep.excerpt)}</p>` : ''}
+      ${shareBox('Share:', ep.title, ep.excerpt || ep.shownotes)}
     </div></div></section>
   <section class="section">
     <div class="wrap ep-layout">
@@ -454,9 +495,6 @@ async function viewEpisode(slug) {
         ${clipsHtml(ep.clips)}
         ${ep.transcript ? `<details class="transcript"><summary><span>📝 Read the transcript</span><small>${Math.max(1, Math.round(ep.transcript.split(/\s+/).length / 200))} min read</small></summary>
           <div class="transcript-body">${transcriptHtml(ep.transcript)}</div></details>` : ''}
-        <div class="share"><span>Share this episode:</span>
-          <button class="btn btn-ghost btn-sm" data-share data-title="${e(ep.title)}">Copy link</button>
-          <a class="btn btn-ghost btn-sm" target="_blank" rel="noopener" href="https://wa.me/?text=${shareText}">${icon('whatsapp')} WhatsApp</a></div>
       </div>
       <aside class="ep-aside">
         ${guests.length ? `<h2 class="h-sm">Guests</h2>` + guests.map((g) => `<a class="guest-mini" href="/guest/${e(g.slug)}">
@@ -471,6 +509,28 @@ async function viewEpisode(slug) {
       ${prev.data ? `<a class="right" href="/episode/${e(prev.data.slug)}"><small>Older episode →</small>${e(prev.data.title)}</a>` : ''}
     </div>
   </section>`, ep.excerpt || ep.shownotes);
+}
+
+/** Share buttons: Facebook, WhatsApp, copy link (the page gets a nice preview thanks to the share edge function) */
+function shareBox(label, title, text = '') {
+  const url = location.origin + location.pathname;
+  const fb = 'https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(url);
+  const wa = 'https://wa.me/?text=' + encodeURIComponent(title + ' — ' + url);
+  return `<div class="share">${label ? `<span>${e(label)}</span>` : ''}
+    <a class="btn btn-sm share-fb" target="_blank" rel="noopener" href="${e(fb)}" data-caption="${e(caption(title, text))}">${icon('facebook')} Facebook</a>
+    <a class="btn btn-ghost btn-sm" target="_blank" rel="noopener" href="${e(wa)}">${icon('whatsapp')} WhatsApp</a>
+    <button class="btn btn-ghost btn-sm" data-share data-title="${e(title)}">${icon('share')} Share with friends</button></div>`;
+}
+/** Ready-made text for a Facebook post: title, short intro and the link */
+function caption(title, text, url = location.origin + location.pathname) {
+  const intro = excerpt(text, 220);
+  return [title, intro, url].filter(Boolean).join('\n\n');
+}
+const fbShareUrl = (url = location.origin + location.pathname) => 'https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(url);
+/** Small round Facebook button on a card (news / episode in lists and on the homepage) */
+function fbMini(path, title, text) {
+  const url = location.origin + path;
+  return `<a class="fb-mini" href="${e(fbShareUrl(url))}" target="_blank" rel="noopener" data-url="${e(url)}" data-caption="${e(caption(title, text, url))}" aria-label="Share on Facebook" title="Share on Facebook">${icon('facebook')}<span>Share</span></a>`;
 }
 
 /** Highlights: short clips (YouTube Shorts/videos get a player; TikTok, Instagram, Facebook… get a button) */
@@ -550,11 +610,12 @@ async function viewGuest(slug) {
   const ids = (links || []).map((r) => r.episode_id);
   const eps = ids.length ? (await publishedEpisodes().in('id', ids).order('published_at', { ascending: false })).data || [] : [];
   const soc = {}; ['website', 'instagram', 'tiktok', 'youtube', 'facebook', 'x', 'linkedin'].forEach((k) => { if (g[k]) soc[k] = g[k]; });
-  act(['✏️ Edit this guest', `#/guest/${g.id}`], [`🎙️ New episode with ${g.name}`, `#/episode/new?guest=${g.id}`], ['➕ New guest', '#/guest/new']);
+  act(['✏️ Edit this guest', `#/guest/${g.id}`], [`🎙️ New episode with ${g.name}`, `#/episode/new?guest=${g.id}`], ['📣 Share on Facebook', fbShareUrl(), caption(`Meet ${g.name}${g.tagline ? ' — ' + g.tagline : ''}`, g.bio)], ['➕ New guest', '#/guest/new']);
   render(g.name, `
   <section class="page-hero"><div class="wrap guest-head">
     <div class="guest-head-photo">${g.photo ? `<img src="${e(media(g.photo))}" alt="${e(g.name)}">` : `<span class="avatar avatar-xl">${e(g.name[0] || '?')}</span>`}</div>
-    <div><p class="eyebrow"><a href="/guests">Guests</a></p><h1>${e(g.name)}</h1>${g.tagline ? `<p class="lead">${e(g.tagline)}</p>` : ''}${socialsHtml(soc, true)}</div>
+    <div><p class="eyebrow"><a href="/guests">Guests</a></p><h1>${e(g.name)}</h1>${g.tagline ? `<p class="lead">${e(g.tagline)}</p>` : ''}${socialsHtml(soc, true)}
+    ${shareBox('Share:', `Meet ${g.name}${g.tagline ? ' — ' + g.tagline : ''}`, g.bio)}</div>
   </div></section>
   ${g.bio ? `<section class="section"><div class="wrap narrow"><h2 class="h-sm">Bio</h2><div class="prose">${md(g.bio)}</div></div></section>` : ''}
   <section class="section section-alt"><div class="wrap"><h2>Episodes with ${e(g.name)}</h2>
@@ -584,11 +645,12 @@ async function viewPost(slug) {
   ]);
   const ep = epRes.data;
   const linkBlock = postLinks(p, ep);
-  act(['✏️ Edit this post', `#/post/${p.id}`], ['➕ New news post', '#/post/new']);
+  act(['✏️ Edit this post', `#/post/${p.id}`], ['📣 Share on Facebook', fbShareUrl(), caption(p.title, p.excerpt || p.body)], ['➕ New news post', '#/post/new']);
   render(p.title, `
   <article><section class="page-hero"><div class="wrap narrow">
     <div class="meta"><a class="tag tag-${e(p.type)}" href="/news?type=${e(p.type)}">${e(POST_TYPES[p.type] || 'News')}</a><span>${fmtDate(p.published_at)}</span></div>
-    <h1>${e(p.title)}</h1>${p.excerpt ? `<p class="lead">${e(p.excerpt)}</p>` : ''}</div></section>
+    <h1>${e(p.title)}</h1>${p.excerpt ? `<p class="lead">${e(p.excerpt)}</p>` : ''}
+    ${shareBox('Share:', p.title, p.excerpt || p.body)}</div></section>
   <section class="section"><div class="wrap narrow">
     ${p.image ? `<img class="post-hero-img" src="${e(media(p.image))}" alt="">` : ''}
     <div class="prose">${md(p.body)}</div>
@@ -636,7 +698,7 @@ async function viewCommunity(_, q) {
 async function viewStory(id) {
   const { data: s } = await sb.from('stories').select('id,name,location,title,body,photo,approved_at,created_at').eq('id', id).eq('status', 'approved').maybeSingle();
   if (!s) return notFound();
-  act(['✏️ Edit this story', `#/story/${s.id}`]);
+  act(['✏️ Edit this story', `#/story/${s.id}`], ['📣 Share on Facebook', fbShareUrl(), caption(`${s.title} — a story by ${s.name}`, s.body)]);
   render(s.title, `
   <article><section class="page-hero"><div class="wrap narrow">
     <p class="eyebrow"><a href="/community">Community stories</a></p><h1>${e(s.title)}</h1>
@@ -645,6 +707,7 @@ async function viewStory(id) {
   <section class="section"><div class="wrap narrow">
     ${s.photo ? `<img class="post-hero-img" src="${e(media(s.photo))}" alt="Photo with ${e(s.name)}'s story">` : ''}
     <div class="prose story-body">${md(s.body)}</div>
+    ${shareBox('Share this story:', `${s.title} — a story by ${s.name}`, s.body)}
     <div class="aside-cta mt"><h2 class="h-sm">Do you have a story too?</h2><p class="muted">Share it with the Joe Point community.</p><a class="btn btn-sm" href="/community/share">Share your story</a></div>
   </div></section></article>`, s.body);
 }
@@ -727,7 +790,7 @@ async function viewParticipate() {
 function viewContact() {
   const mail = S.contact_email;
   const soc = siteSocials(S);
-  act(['✏️ Edit contact & socials', '#/settings/contact'], ['📥 Open inbox', '#/inbox/contact']);
+  act(['✏️ Edit contact page', '#/settings/contact'], ['🔗 Social media links', '#/settings/social'], ['📥 Open inbox', '#/inbox/contact']);
   render('Contact', `
   <section class="page-hero"><div class="wrap"><p class="eyebrow">Get in touch</p><h1>Contact</h1><p class="lead">${e(S.contact_intro)}</p></div></section>
   <section class="section"><div class="wrap two-col">
@@ -817,11 +880,11 @@ function bindForms() {
   }));
 
   // Share
+  // "Share with friends": phone → the phone's own share menu (WhatsApp, Messenger, SMS, Instagram…); computer → copy the link
   $main.querySelectorAll('[data-share]').forEach((b) => b.addEventListener('click', async () => {
-    try {
-      if (navigator.share) await navigator.share({ title: b.dataset.title, url: location.href });
-      else { await navigator.clipboard.writeText(location.href); b.textContent = 'Copied!'; }
-    } catch { /* cancelled */ }
+    const url = b.dataset.url ? location.origin + b.dataset.url : location.origin + location.pathname;
+    if (isTouch() && navigator.share) { navigator.share({ title: b.dataset.title, text: b.dataset.title, url }).catch(() => {}); return; }
+    try { await navigator.clipboard.writeText(url); toast('ok', '🔗 Link copied — paste it in a message to your friends.'); } catch { /* no clipboard */ }
   }));
 
   $main.querySelectorAll('[data-recorder]').forEach(setupRecorder);

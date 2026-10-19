@@ -141,7 +141,7 @@ export function errMsg(err) {
 }
 
 /* ---------- Socials ---------- */
-export const NETWORKS = { spotify: 'Spotify', apple: 'Apple Podcasts', youtube: 'YouTube', instagram: 'Instagram', tiktok: 'TikTok', facebook: 'Facebook', x: 'X', linkedin: 'LinkedIn', whatsapp: 'WhatsApp', website: 'Website' };
+export const NETWORKS = { facebook: 'Facebook', instagram: 'Instagram', youtube: 'YouTube', tiktok: 'TikTok', spotify: 'Spotify', apple: 'Apple Podcasts', x: 'X', linkedin: 'LinkedIn', whatsapp: 'WhatsApp', website: 'Website' };
 
 export function siteSocials(S) {
   const out = {};
@@ -169,7 +169,7 @@ const P = {
   youtube: '<rect x="3" y="5.5" width="18" height="13" rx="3.5"/><path d="m10 9.5 4.5 2.5-4.5 2.5z"/>',
   instagram: '<rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.2" cy="6.8" r=".6" fill="currentColor"/>',
   tiktok: '<path d="M14 3v11.5a3.5 3.5 0 1 1-3.5-3.5"/><path d="M14 3c.5 2.7 2.3 4.4 5 4.6"/>',
-  facebook: '<circle cx="9" cy="8" r="3"/><path d="M3.5 19c.6-3 2.8-5 5.5-5s4.9 2 5.5 5"/><circle cx="17" cy="9" r="2.3"/><path d="M15.5 14.3c2.3-.3 4.3 1.3 5 4.2"/>',
+  facebook: '<rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><path d="M15.5 7.5h-1.7a2.3 2.3 0 0 0-2.3 2.3v10.7M9 12.5h6"/>',
   x: '<path d="M4 4l16 16M20 4 4 20"/>',
   linkedin: '<rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M3 12.5h18"/>',
   whatsapp: '<path d="M20 11.5a8 8 0 0 1-11.8 7L4 20l1.5-4A8 8 0 1 1 20 11.5z"/>',
@@ -185,6 +185,7 @@ const P = {
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
   pin: '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>',
   quote: '<path d="M9 8H6a2 2 0 0 0-2 2v3h5v-5zM9 8c0 4-1 7-5 9M20 8h-3a2 2 0 0 0-2 2v3h5v-5zM20 8c0 4-1 7-5 9"/>',
+  share: '<circle cx="18" cy="5.5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="18.5" r="2.5"/><path d="m8.2 10.8 7.6-4.1M8.2 13.2l7.6 4.1"/>',
   stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/>',
 };
 export const icon = (n) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || P.link}</svg>`;
