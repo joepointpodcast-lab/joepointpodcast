@@ -2,8 +2,9 @@
 import { SUPABASE_URL } from './config.js';
 import {
   sb, e, md, excerpt, fmtDate, media, episodePlayer, embedHtml, icon, siteSocials, socialsHtml,
-  POST_TYPES, applyTheme, resizeImage, upload, errMsg,
+  POST_TYPES, applyTheme, resizeImage, upload, errMsg, validUrl,
 } from './lib.js';
+import { normTags, tagPath, canonical, plain, ldSeries, ldEpisode, ldPerson, ldArticle, ldCrumbs } from './seo.js';
 
 const $main = document.getElementById('main');
 let S = {};          // settings
@@ -55,6 +56,7 @@ const routes = [
   [/^\/community\/(\d+)\/?$/, viewStory],
   [/^\/get-involved\/?$/, viewParticipate],
   [/^\/contact\/?$/, viewContact],
+  [/^\/tag\/([^/]+)\/?$/, viewTag],
 ];
 
 // Old Dutch addresses keep working (links that were already shared)
@@ -102,9 +104,12 @@ document.addEventListener('click', (ev) => {
 });
 window.addEventListener('popstate', route);
 
-// Facebook share: copy a ready-made text (Lamin only has to paste it), then
-// - phone/tablet: open the phone's own share menu → pick the Facebook app (already logged in there)
-// - computer: open Facebook's share window as a small pop-up on top of the site
+// Facebook share. Always copies a ready-made text (title + intro + link) first.
+// - phone/tablet: the phone's own share menu → pick the Facebook app (already logged in there)
+// - Lamin on a computer: a small step-by-step window → opens his podcast page on Facebook,
+//   where he clicks "Create post" and pastes. (Facebook's own share window often fails when
+//   posting as a Page: "This page isn't available".)
+// - visitors on a computer: Facebook's share page in a new tab
 const isTouch = () => matchMedia('(pointer: coarse)').matches;
 document.addEventListener('click', (ev) => {
   const a = ev.target.closest('[data-caption]');
@@ -112,28 +117,68 @@ document.addEventListener('click', (ev) => {
   ev.preventDefault();
   const cap = a.dataset.caption || '';
   const pageUrl = a.dataset.url || location.origin + location.pathname;
-  if (cap) navigator.clipboard?.writeText(cap).then(
-    () => toast('ok', IS_ADMIN
-      ? '📋 Text copied — paste it in your post. Tip: post on the podcast page, then share it from there to your own profile.'
-      : '📋 Text copied — paste it in your Facebook post.'),
-    () => {});
+  const copied = cap ? navigator.clipboard?.writeText(cap).then(() => true, () => false) : Promise.resolve(false);
   if (isTouch() && navigator.share) {
+    copied.then((ok) => ok && toast('ok', '📋 Text copied — paste it in your Facebook post.'));
     navigator.share({ url: pageUrl }).catch(() => {});
     return;
   }
-  const w = 620, h = 640;
-  const left = Math.max(0, (screenX || 0) + (outerWidth - w) / 2), top = Math.max(0, (screenY || 0) + (outerHeight - h) / 3);
-  const win = window.open(a.href, 'fbshare', `popup=yes,width=${w},height=${h},left=${left},top=${top}`);
-  if (!win) window.open(a.href, '_blank', 'noopener');
+  if (IS_ADMIN) { copied.then((ok) => fbSteps(ok, cap)); return; }
+  copied.then((ok) => ok && toast('ok', '📋 Text copied — paste it in your Facebook post.'));
+  window.open(a.href, '_blank', 'noopener');
 }, true);
 
-function render(title, html, desc) {
+/** Step-by-step window for Lamin: text is copied → open the podcast page → Create post → paste */
+function fbSteps(ok, cap) {
+  const page = validUrl(S.social_facebook) || 'https://www.facebook.com/';
+  document.getElementById('fb-steps')?.remove();
+  const d = document.createElement('dialog');
+  d.id = 'fb-steps'; d.className = 'fb-steps';
+  d.innerHTML = `<h2>Share on Facebook</h2>
+    <ol>
+      <li>${ok ? '✅ The text and link are <strong>copied</strong>.' : 'Copy this text:<textarea readonly rows="5"></textarea>'}</li>
+      <li>Click the blue button: your ${S.social_facebook ? '<strong>podcast page</strong>' : 'Facebook'} opens.</li>
+      <li>Click <strong>Create post</strong> and <strong>paste</strong> (right-click → Paste, or Ctrl+V).</li>
+      <li>Wait a moment for the preview with the picture, then click <strong>Post</strong>.</li>
+    </ol>
+    <p class="muted">Tip: then share that post from the podcast page to your own profile — no double posts.</p>
+    <div class="fb-steps-btns"><a class="btn share-fb" href="${e(page)}" target="_blank" rel="noopener">${icon('facebook')} Open Facebook</a>
+    <button class="btn btn-ghost" type="button" data-close>Close</button></div>`;
+  if (!ok) d.querySelector('textarea').value = cap;
+  document.body.appendChild(d);
+  d.addEventListener('click', (ev) => { if (ev.target === d || ev.target.closest('[data-close]') || ev.target.closest('.share-fb')) d.close(); });
+  d.addEventListener('close', () => d.remove());
+  d.showModal();
+}
+
+/**
+ * Put a page on screen + tell Google about it.
+ * seo: { title: own Google title, description: own Google description, ld: structured data (object or array), noindex }
+ */
+function render(title, html, desc, seo = {}) {
   const site = S.site_title || 'Joe Point Podcast';
-  document.title = title ? `${title} — ${site}` : `${site} — ${S.tagline || ''}`;
-  const d = document.querySelector('meta[name=description]');
-  if (d) d.content = excerpt(desc || S.tagline || '', 160);
+  document.title = seo.title || (title ? `${title} — ${site}` : `${site} — ${S.tagline || ''}`);
+  headTag('meta[name=description]', 'meta', { name: 'description' }).content = plain(seo.description || desc || S.seo_description || S.tagline || '', 160);
+  headTag('link[rel=canonical]', 'link', { rel: 'canonical' }).href = canonical(location.origin, location.pathname, location.search);
+  headTag('meta[name=robots]', 'meta', { name: 'robots' }).content = seo.noindex ? 'noindex' : 'index, follow';
+  document.querySelectorAll('script[data-ld]').forEach((x) => x.remove());
+  [].concat(seo.ld || []).forEach((obj) => {
+    const sc = document.createElement('script'); sc.type = 'application/ld+json'; sc.dataset.ld = '';
+    sc.textContent = JSON.stringify(obj).replace(/</g, '\\u003c'); document.head.appendChild(sc);
+  });
   $main.innerHTML = html;
 }
+function headTag(sel, tag, attrs) {
+  let el = document.head.querySelector(sel);
+  if (!el) { el = document.createElement(tag); Object.assign(el, attrs); if (attrs.name) el.setAttribute('name', attrs.name); document.head.appendChild(el); }
+  return el;
+}
+/** Clickable topics (tags) → /tag/… pages */
+function tagsHtml(tags, label = 'Topics') {
+  const list = normTags(tags);
+  return list.length ? `<nav class="topic-tags" aria-label="${e(label)}"><span>${e(label)}:</span>${list.map((t) => `<a href="${e(tagPath(t))}">#${e(t)}</a>`).join('')}</nav>` : '';
+}
+const img = (p) => (p ? media(p) : '');
 
 function afterRender() {
   bindForms();
@@ -147,7 +192,7 @@ function notFound() {
     <p class="eyebrow">404</p><h1>This page doesn't exist (anymore)</h1>
     <p class="lead">The link may have changed. Try the episodes or head back home.</p>
     <div class="btn-row center-row"><a class="btn" href="/">Go home</a><a class="btn btn-ghost" href="/episodes">Episodes</a></div>
-  </div></section>`);
+  </div></section>`, '', { noindex: true });
 }
 
 function toast(type, msg) {
@@ -303,6 +348,12 @@ function postCard(p) {
       <div class="meta meta-foot">${p.episode_id ? `<span>${icon('headphones')} Episode</span>` : ''}${p.link_url ? `<span>${icon('link')} Link</span>` : ''}${fbMini('/news/' + p.slug, p.title, p.excerpt || p.body)}</div></div></article>`;
 }
 
+function guestCard(g) {
+  return `<a class="card guest-card" href="/guest/${e(g.slug)}">
+    <div class="guest-photo">${g.photo ? `<img src="${e(media(g.photo))}" alt="${e(g.name)}" loading="lazy">` : `<span class="avatar avatar-lg">${e(g.name[0] || '?')}</span>`}</div>
+    <div class="card-body"><h3>${e(g.name)}</h3>${g.tagline ? `<p>${e(g.tagline)}</p>` : ''}</div></a>`;
+}
+
 function pager(page, total, per) {
   const pages = Math.max(1, Math.ceil(total / per));
   if (pages <= 1) return '';
@@ -388,7 +439,52 @@ async function viewHome() {
     <p class="muted">Share the podcast with your friends and family.</p>
     ${shareBox('', S.site_title || 'Joe Point Podcast', S.tagline || '')}</div></section>
   ${Object.keys(siteSocials(S)).length ? `<section class="section band follow"><div class="wrap center"><h2>Follow Joe Point</h2>${socialsHtml(siteSocials(S), true)}</div></section>` : ''}
-  `, S.intro_text);
+  `, S.intro_text, {
+    title: `${S.site_title || 'Joe Point Podcast'}${S.tagline ? ' — ' + S.tagline : ''}`, description: S.seo_description || S.tagline || S.intro_text,
+    ld: ldSeries({ origin: location.origin, S, image: img(S.hero_image || S.host_photo || S.logo) }),
+  });
+}
+
+/** Most used topics over all published episodes, guests and posts (tolerant: [] when the database has no tags yet) */
+async function topTags(limit = 24) {
+  const n = {};
+  const res = await Promise.all([
+    publishedEpisodes('tags').limit(500), sb.from('guests').select('tags').limit(500),
+    sb.from('posts').select('tags').eq('status', 'published').lte('published_at', nowIso()).limit(500),
+  ]);
+  for (const r of res) for (const row of r.data || []) for (const t of row.tags || []) n[t] = (n[t] || 0) + 1;
+  return Object.entries(n).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, limit).map(([t]) => t);
+}
+
+/** /tag/gambia → everything about one topic */
+async function viewTag(raw) {
+  const tag = normTags(raw)[0];
+  if (!tag) return notFound();
+  const [eps, gs, ps, all] = await Promise.all([
+    publishedEpisodes().contains('tags', [tag]).order('published_at', { ascending: false }).limit(60),
+    sb.from('guests').select('*').contains('tags', [tag]).order('name').limit(60),
+    publishedPosts().contains('tags', [tag]).order('published_at', { ascending: false }).limit(30),
+    topTags(30),
+  ]);
+  const E = eps.data || [], G = gs.data || [], P = ps.data || [];
+  const total = E.length + G.length + P.length;
+  const nice = tag.replace(/\b\w/g, (c) => c.toUpperCase());
+  const site = S.site_title || 'Joe Point Podcast';
+  act(['🎙️ Episodes', '#/episodes'], ['📰 News', '#/posts']);
+  render(nice, `
+  <section class="page-hero"><div class="wrap"><p class="eyebrow">Topic</p><h1>#${e(tag)}</h1>
+    <p class="lead">${total ? `${total} ${total === 1 ? 'item' : 'items'} about ${e(nice)} on ${e(site)}.` : `Nothing about ${e(nice)} yet.`}</p></div></section>
+  ${E.length ? `<section class="section"><div class="wrap"><h2>Episodes about ${e(nice)}</h2>${grid(E, episodeCard)}</div></section>` : ''}
+  ${G.length ? `<section class="section section-alt"><div class="wrap"><h2>Guests</h2>${grid(G, guestCard)}</div></section>` : ''}
+  ${P.length ? `<section class="section"><div class="wrap"><h2>News</h2>${grid(P, postCard)}</div></section>` : ''}
+  ${!total ? `<section class="section"><div class="wrap narrow center"><div class="empty"><p>Have an idea about this topic?</p><a class="btn btn-ghost" href="/get-involved#topic">Suggest it</a></div></div></section>` : ''}
+  ${all.length ? `<section class="section"><div class="wrap">${tagsHtml(all.filter((t) => t !== tag), 'More topics')}</div></section>` : ''}`,
+  '', {
+    title: `${nice} — episodes, guests & news | ${site}`,
+    description: `Everything about ${nice} on ${site}: ${E.slice(0, 3).map((x) => x.title).join(', ') || 'episodes, guests and news'}.`,
+    noindex: !total,
+    ld: ldCrumbs(location.origin, [['Topics', '/episodes'], ['#' + tag, tagPath(tag)]]),
+  });
 }
 
 async function viewAbout() {
@@ -419,6 +515,7 @@ async function viewEpisodes(_, q) {
   const page = pageNum(q);
 
   let epIds = [], like = '';
+  const topic = normTags(term.replace(/[%_,()*"\\{}]/g, ' '))[0] || '';
   if (term) {
     const clean = term.replace(/[%_,()*"\\]/g, ' ').trim();
     like = `%${clean}%`;
@@ -433,14 +530,14 @@ async function viewEpisodes(_, q) {
     if (cat) query = query.eq('category_id', cat.id);
     if (term) {
       const ors = [`title.ilike."${like}"`, `excerpt.ilike."${like}"`, `shownotes.ilike."${like}"`];
-      if (withTranscript) ors.push(`transcript.ilike."${like}"`);   // also search inside what was said
+      if (withTranscript) { ors.push(`transcript.ilike."${like}"`); if (topic) ors.push(`tags.cs.{"${topic}"}`); }   // also search inside what was said + topics
       if (epIds.length) ors.push(`id.in.(${epIds.join(',')})`);
       query = query.or(ors.join(','));
     }
     return query.order('published_at', { ascending: false }).range((page - 1) * PAGE, page * PAGE - 1);
   };
-  let res = await run(true);
-  if (res.error && term) res = await run(false);   // database not updated yet → search without transcript
+  let [res, topics] = await Promise.all([run(true), topTags(20)]);
+  if (res.error && term) res = await run(false);   // database not updated yet → search without transcript/topics
   const { data, count } = must(res);
 
   const chip = (label, slug) => {
@@ -459,6 +556,7 @@ async function viewEpisodes(_, q) {
       <button class="btn">Search</button>
     </form>
     <nav class="chips" aria-label="Categories">${chip('All', '')}${CATS.map((c) => chip(c.name, c.slug)).join('')}</nav>
+    ${tagsHtml(topics)}
   </div></section>
   <section class="section"><div class="wrap">
     ${term || cat ? `<p class="muted results-line">${count} ${count === 1 ? 'episode' : 'episodes'} found${term ? ` for “${e(term)}”` : ''}. <a href="/episodes">Clear filters</a></p>` : ''}
@@ -468,7 +566,8 @@ async function viewEpisodes(_, q) {
 }
 
 async function viewEpisode(slug) {
-  let { data: ep, error } = await publishedEpisodes(EP_FIELDS + ',transcript,clips').eq('slug', slug).maybeSingle();
+  let { data: ep, error } = await publishedEpisodes(EP_FIELDS + ',transcript,clips,tags,seo_title,seo_description').eq('slug', slug).maybeSingle();
+  if (error) ({ data: ep, error } = await publishedEpisodes(EP_FIELDS + ',transcript,clips').eq('slug', slug).maybeSingle());   // database not updated yet
   if (error) ({ data: ep } = await publishedEpisodes().eq('slug', slug).maybeSingle());   // database not updated yet
   if (!ep) return notFound();
   const [guests, prev, next] = await Promise.all([
@@ -492,6 +591,7 @@ async function viewEpisode(slug) {
       <div>
         <div class="player-box">${episodePlayer(ep) || '<p class="muted">Audio coming soon.</p>'}</div>
         ${ep.shownotes ? `<h2 class="h-sm">Show notes</h2><div class="prose">${md(ep.shownotes)}</div>` : ''}
+        ${tagsHtml(ep.tags)}
         ${clipsHtml(ep.clips)}
         ${ep.transcript ? `<details class="transcript"><summary><span>📝 Read the transcript</span><small>${Math.max(1, Math.round(ep.transcript.split(/\s+/).length / 200))} min read</small></summary>
           <div class="transcript-body">${transcriptHtml(ep.transcript)}</div></details>` : ''}
@@ -508,7 +608,11 @@ async function viewEpisode(slug) {
       ${next.data ? `<a href="/episode/${e(next.data.slug)}"><small>← Newer episode</small>${e(next.data.title)}</a>` : '<span></span>'}
       ${prev.data ? `<a class="right" href="/episode/${e(prev.data.slug)}"><small>Older episode →</small>${e(prev.data.title)}</a>` : ''}
     </div>
-  </section>`, ep.excerpt || ep.shownotes);
+  </section>`, ep.excerpt || ep.shownotes, {
+    title: ep.seo_title, description: ep.seo_description,
+    ld: [ldEpisode({ origin: location.origin, S, ep, guests, image: img(ep.cover) || img(S.logo), audio: img(ep.audio) }),
+      ldCrumbs(location.origin, [['Episodes', '/episodes'], [ep.title, '/episode/' + ep.slug]])],
+  });
 }
 
 /** Share buttons: Facebook, WhatsApp, copy link (the page gets a nice preview thanks to the share edge function) */
@@ -617,9 +721,12 @@ async function viewGuest(slug) {
     <div><p class="eyebrow"><a href="/guests">Guests</a></p><h1>${e(g.name)}</h1>${g.tagline ? `<p class="lead">${e(g.tagline)}</p>` : ''}${socialsHtml(soc, true)}
     ${shareBox('Share:', `Meet ${g.name}${g.tagline ? ' — ' + g.tagline : ''}`, g.bio)}</div>
   </div></section>
-  ${g.bio ? `<section class="section"><div class="wrap narrow"><h2 class="h-sm">Bio</h2><div class="prose">${md(g.bio)}</div></div></section>` : ''}
+  ${g.bio || g.tags?.length ? `<section class="section"><div class="wrap narrow">${g.bio ? `<h2 class="h-sm">Bio</h2><div class="prose">${md(g.bio)}</div>` : ''}${tagsHtml(g.tags)}</div></section>` : ''}
   <section class="section section-alt"><div class="wrap"><h2>Episodes with ${e(g.name)}</h2>
-    ${eps.length ? grid(eps, episodeCard) : '<p class="muted">The episode is coming soon.</p>'}</div></section>`, g.tagline || g.bio);
+    ${eps.length ? grid(eps, episodeCard) : '<p class="muted">The episode is coming soon.</p>'}</div></section>`, g.tagline || g.bio, {
+    title: g.seo_title || `${g.name}${g.tagline ? ' — ' + g.tagline : ''} | ${S.site_title || 'Joe Point Podcast'}`, description: g.seo_description,
+    ld: [ldPerson({ origin: location.origin, g, image: img(g.photo) }), ldCrumbs(location.origin, [['Guests', '/guests'], [g.name, '/guest/' + g.slug]])],
+  });
 }
 
 async function viewNews(_, q) {
@@ -655,9 +762,13 @@ async function viewPost(slug) {
     ${p.image ? `<img class="post-hero-img" src="${e(media(p.image))}" alt="">` : ''}
     <div class="prose">${md(p.body)}</div>
     ${linkBlock}
+    ${tagsHtml(p.tags)}
     ${imgs?.length ? `<div class="gallery">${imgs.map((im) => `<figure><a href="${e(media(im.file))}" target="_blank" rel="noopener"><img src="${e(media(im.file))}" alt="${e(im.caption)}" loading="lazy"></a>${im.caption ? `<figcaption>${e(im.caption)}</figcaption>` : ''}</figure>`).join('')}</div>` : ''}
     <p class="mt"><a class="link-arrow" href="/news">← Back to news</a></p>
-  </div></section></article>`, p.excerpt || p.body);
+  </div></section></article>`, p.excerpt || p.body, {
+    title: p.seo_title, description: p.seo_description,
+    ld: [ldArticle({ origin: location.origin, S, p, image: img(p.image) || img(S.logo) }), ldCrumbs(location.origin, [['News', '/news'], [p.title, '/news/' + p.slug]])],
+  });
 }
 
 /** Buttons under a news post: related episode and/or an external link (Facebook, Instagram, YouTube…) */

@@ -1,72 +1,166 @@
-// Nice previews when sharing (WhatsApp, Facebook, Google…)
-// Search engines and share bots get the right title, description and image in the HTML.
+// Google & share previews.
+// Search engines (Google, Bing…) and share bots (WhatsApp, Facebook…) get a READY-MADE page:
+// the right title, description, image, canonical address, structured data AND the text of the page
+// (show notes, transcript, bio, news text). Normal visitors get the normal website.
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../../site/assets/js/config.js';
+import { normTags, tagPath, canonical, plain, mdLite, ldSeries, ldEpisode, ldPerson, ldArticle, ldCrumbs } from '../../site/assets/js/seo.js';
 
 // Works with both the legacy 'anon' key (eyJ…) and the new 'publishable' key (sb_publishable_…)
 const AUTH = SUPABASE_ANON_KEY.startsWith('eyJ') ? { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } : { apikey: SUPABASE_ANON_KEY };
 
-const BOTS = /bot|crawl|spider|slurp|facebookexternalhit|facebot|whatsapp|telegram|twitter|linkedin|slack|discord|skype|pinterest|embedly|vkshare|preview|google|bing|yandex|duckduck|applebot/i;
+const BOTS = /bot|crawl|spider|slurp|facebookexternalhit|facebot|whatsapp|telegram|twitter|linkedin|slack|discord|skype|pinterest|embedly|vkshare|preview|google|bing|yandex|duckduck|applebot|lighthouse/i;
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const plain = (t, n = 200) => { const s = String(t || '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/[#*_>]/g, '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n) + '…' : s; };
-const img = (p) => p ? `${SUPABASE_URL}/storage/v1/object/public/media/${p}` : '';
+const img = (p) => (p ? `${SUPABASE_URL}/storage/v1/object/public/media/${p}` : '');
 
 async function q(path) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: AUTH });
-  return r.ok ? r.json() : [];
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: AUTH });
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
 }
+/** Try with the new columns first; if the database isn't updated yet, without them */
+async function q2(withCols, without) { return (await q(withCols)) ?? (await q(without)); }
+/** Database not reachable → don't pretend the page is gone (serve the normal page instead) */
+const need = (rows) => { if (!rows) throw new Error('Database not reachable'); return rows; };
+
+const list = (items, fn) => (items.length ? `<ul>${items.map(fn).join('')}</ul>` : '');
+const tagLinks = (tags) => { const t = normTags(tags); return t.length ? `<p>Topics: ${t.map((x) => `<a href="${esc(tagPath(x))}">#${esc(x)}</a>`).join(' ')}</p>` : ''; };
 
 export default async (request, context) => {
   if (!BOTS.test(request.headers.get('user-agent') || '') || SUPABASE_URL.includes('JOUW-PROJECT')) return context.next();
+  const res = await context.next();
+  if (!(res.headers.get('content-type') || '').includes('text/html')) return res;
+  let html = await res.text();
+  const headers = new Headers(res.headers);
+  headers.delete('content-length');
   const url = new URL(request.url);
-  const [, kind, slug] = url.pathname.split('/');
+  const origin = url.origin;
+  const parts = url.pathname.replace(/\/+$/, '').split('/');
+  const kind = parts[1] || '', slug = decodeURIComponent(parts[2] || '');
   const now = encodeURIComponent(new Date().toISOString());
+  const PUB = `status=eq.published&published_at=lte.${now}`;
 
   try {
-    const settings = Object.fromEntries((await q('settings?select=key,value')).map((r) => [r.key, r.value]));
-    const site = settings.site_title || 'Joe Point Podcast';
-    let title = `${site} — ${settings.tagline || ''}`;
-    let desc = plain(settings.intro_text || settings.tagline);
-    let image = img(settings.hero_image || settings.logo);
+    const S = Object.fromEntries(((await q('settings?select=key,value')) || []).map((r) => [r.key, r.value]));
+    const site = S.site_title || 'Joe Point Podcast';
+    let title = `${site}${S.tagline ? ' — ' + S.tagline : ''}`;
+    let desc = S.seo_description || S.tagline || plain(S.intro_text);
+    let image = img(S.hero_image || S.host_photo || S.logo);
+    let body = '', ld = [], status = 200, noindex = false;
+    const s = encodeURIComponent(slug);
+    const notFound = () => { status = 404; noindex = true; title = `Page not found — ${site}`; body = `<h1>This page doesn't exist (anymore)</h1><p><a href="/episodes">All episodes</a></p>`; };
 
-    const s = encodeURIComponent(decodeURIComponent(slug || ''));
-    if (kind === 'episode' && slug) {
-      const [ep] = await q(`episodes?select=title,excerpt,shownotes,cover&slug=eq.${s}&status=eq.published&published_at=lte.${now}`);
-      if (ep) { title = `${ep.title} — ${site}`; desc = plain(ep.excerpt || ep.shownotes); image = img(ep.cover) || image; }
+    if (kind === '') {
+      const [eps, posts] = await Promise.all([
+        q(`episodes?select=title,slug,excerpt&${PUB}&order=published_at.desc&limit=20`),
+        q(`posts?select=title,slug&${PUB}&order=published_at.desc&limit=10`),
+      ]);
+      ld = [ldSeries({ origin, S, image })];
+      body = `<h1>${esc(S.intro_title || site)}</h1>${S.tagline ? `<p>${esc(S.tagline)}</p>` : ''}${mdLite(S.intro_text)}
+        <h2>Latest episodes</h2>${list(eps || [], (x) => `<li><a href="/episode/${esc(x.slug)}">${esc(x.title)}</a> — ${esc(plain(x.excerpt, 140))}</li>`)}
+        <h2>News</h2>${list(posts || [], (x) => `<li><a href="/news/${esc(x.slug)}">${esc(x.title)}</a></li>`)}`;
+    } else if (kind === 'episode' && slug) {
+      const base = `title,slug,number,excerpt,shownotes,cover,audio,media_url,duration,published_at`;
+      const [ep] = need(await q2(`episodes?select=${base},transcript,tags,seo_title,seo_description&slug=eq.${s}&${PUB}`, `episodes?select=${base}&slug=eq.${s}&${PUB}`));
+      if (!ep) notFound();
+      else {
+        const links = (await q(`episodes?select=episode_guests(guests(name,slug,tagline))&slug=eq.${s}`)) || [];
+        const guests = (links[0]?.episode_guests || []).map((r) => r.guests).filter(Boolean);
+        title = ep.seo_title || `${ep.title} — ${site}`; desc = ep.seo_description || plain(ep.excerpt || ep.shownotes); image = img(ep.cover) || image;
+        ld = [ldEpisode({ origin, S, ep, guests, image, audio: img(ep.audio) }), ldCrumbs(origin, [['Episodes', '/episodes'], [ep.title, '/episode/' + ep.slug]])];
+        body = `<article><p><a href="/episodes">Episodes</a></p><h1>${esc(ep.title)}</h1>${ep.number ? `<p>Episode ${+ep.number}${ep.duration ? ' · ' + esc(ep.duration) : ''}</p>` : ''}
+          ${ep.excerpt ? `<p>${esc(ep.excerpt)}</p>` : ''}
+          ${guests.length ? `<h2>Guests</h2>${list(guests, (g) => `<li><a href="/guest/${esc(g.slug)}">${esc(g.name)}</a>${g.tagline ? ' — ' + esc(g.tagline) : ''}</li>`)}` : ''}
+          ${ep.shownotes ? `<h2>Show notes</h2>${mdLite(ep.shownotes)}` : ''}${tagLinks(ep.tags)}
+          ${ep.transcript ? `<h2>Transcript</h2>${mdLite(ep.transcript)}` : ''}</article>`;
+      }
     } else if (kind === 'guest' && slug) {
-      const [g] = await q(`guests?select=name,tagline,bio,photo&slug=eq.${s}`);
-      if (g) { title = `${g.name} — ${site}`; desc = plain(g.tagline || g.bio); image = img(g.photo) || image; }
+      const [g] = need(await q(`guests?select=*,episode_guests(episodes(title,slug,status))&slug=eq.${s}`));
+      if (!g) notFound();
+      else {
+        const eps = (g.episode_guests || []).map((r) => r.episodes).filter((x) => x && x.status === 'published');
+        title = g.seo_title || `${g.name}${g.tagline ? ' — ' + g.tagline : ''} | ${site}`; desc = g.seo_description || plain(g.tagline || g.bio); image = img(g.photo) || image;
+        ld = [ldPerson({ origin, g, image: img(g.photo) }), ldCrumbs(origin, [['Guests', '/guests'], [g.name, '/guest/' + g.slug]])];
+        body = `<p><a href="/guests">Guests</a></p><h1>${esc(g.name)}</h1>${g.tagline ? `<p>${esc(g.tagline)}</p>` : ''}${mdLite(g.bio)}${tagLinks(g.tags)}
+          <h2>Episodes with ${esc(g.name)}</h2>${list(eps, (x) => `<li><a href="/episode/${esc(x.slug)}">${esc(x.title)}</a></li>`)}`;
+      }
     } else if (kind === 'news' && slug) {
-      const [p] = await q(`posts?select=title,excerpt,body,image&slug=eq.${s}&status=eq.published&published_at=lte.${now}`);
-      if (p) { title = `${p.title} — ${site}`; desc = plain(p.excerpt || p.body); image = img(p.image) || image; }
-    } else if (kind === 'community' && /^\d+$/.test(slug || '')) {
-      const [st] = await q(`stories?select=title,name,body,photo&id=eq.${slug}&status=eq.approved`);
-      if (st) { title = `${st.title} — ${st.name} — ${site}`; desc = plain(st.body); image = img(st.photo) || image; }
+      const [p] = need(await q(`posts?select=*&slug=eq.${s}&${PUB}`));
+      if (!p) notFound();
+      else {
+        title = p.seo_title || `${p.title} — ${site}`; desc = p.seo_description || plain(p.excerpt || p.body); image = img(p.image) || image;
+        ld = [ldArticle({ origin, S, p, image }), ldCrumbs(origin, [['News', '/news'], [p.title, '/news/' + p.slug]])];
+        body = `<article><p><a href="/news">News</a></p><h1>${esc(p.title)}</h1>${p.excerpt ? `<p>${esc(p.excerpt)}</p>` : ''}${mdLite(p.body)}${tagLinks(p.tags)}</article>`;
+      }
+    } else if (kind === 'tag' && slug) {
+      const tag = normTags(slug)[0] || '';
+      const c = encodeURIComponent(`{"${tag.replace(/"/g, '')}"}`);
+      const [eps, gs, ps] = await Promise.all([
+        q(`episodes?select=title,slug,excerpt&tags=cs.${c}&${PUB}&order=published_at.desc`),
+        q(`guests?select=name,slug,tagline&tags=cs.${c}`), q(`posts?select=title,slug&tags=cs.${c}&${PUB}`),
+      ]);
+      const E = eps || [], G = gs || [], P = ps || [];
+      const nice = tag.replace(/\b\w/g, (x) => x.toUpperCase());
+      if (!E.length && !G.length && !P.length) noindex = true;
+      title = `${nice} — episodes, guests & news | ${site}`;
+      desc = `Everything about ${nice} on ${site}: ${E.slice(0, 3).map((x) => x.title).join(', ') || 'episodes, guests and news'}.`;
+      ld = [ldCrumbs(origin, [['Topics', '/episodes'], ['#' + tag, tagPath(tag)]])];
+      body = `<h1>#${esc(tag)}</h1>${E.length ? `<h2>Episodes</h2>${list(E, (x) => `<li><a href="/episode/${esc(x.slug)}">${esc(x.title)}</a> — ${esc(plain(x.excerpt, 140))}</li>`)}` : ''}
+        ${G.length ? `<h2>Guests</h2>${list(G, (x) => `<li><a href="/guest/${esc(x.slug)}">${esc(x.name)}</a></li>`)}` : ''}
+        ${P.length ? `<h2>News</h2>${list(P, (x) => `<li><a href="/news/${esc(x.slug)}">${esc(x.title)}</a></li>`)}` : ''}`;
+    } else if (kind === 'episodes') {
+      const eps = (await q(`episodes?select=title,slug,excerpt&${PUB}&order=published_at.desc&limit=200`)) || [];
+      title = `Episodes — ${site}`; desc = `All episodes of ${site}. ${S.tagline || ''}`.trim();
+      body = `<h1>Episodes</h1>${list(eps, (x) => `<li><a href="/episode/${esc(x.slug)}">${esc(x.title)}</a> — ${esc(plain(x.excerpt, 140))}</li>`)}`;
+    } else if (kind === 'guests') {
+      const gs = (await q('guests?select=name,slug,tagline&order=name')) || [];
+      title = `Guests — ${site}`; desc = `The people who shared their stories on ${site}.`;
+      body = `<h1>Guests</h1>${list(gs, (x) => `<li><a href="/guest/${esc(x.slug)}">${esc(x.name)}</a>${x.tagline ? ' — ' + esc(x.tagline) : ''}</li>`)}`;
+    } else if (kind === 'news') {
+      const ps = (await q(`posts?select=title,slug,excerpt&${PUB}&order=published_at.desc&limit=100`)) || [];
+      title = `News & updates — ${site}`; desc = `News, updates and guest announcements from ${site}.`;
+      body = `<h1>News & updates</h1>${list(ps, (x) => `<li><a href="/news/${esc(x.slug)}">${esc(x.title)}</a></li>`)}`;
+    } else if (kind === 'community' && /^\d+$/.test(slug)) {
+      const [st] = need(await q(`stories?select=title,name,body,photo&id=eq.${slug}&status=eq.approved`));
+      if (!st) notFound();
+      else { title = `${st.title} — ${st.name} — ${site}`; desc = plain(st.body); image = img(st.photo) || image; body = `<h1>${esc(st.title)}</h1><p>${esc(st.name)}</p>${mdLite(st.body)}`; }
     } else if (kind === 'about') {
-      title = `About ${settings.host_name || 'Lamin'} — ${site}`; desc = plain(settings.host_intro); image = img(settings.host_photo) || image;
+      const host = S.host_name || 'Lamin';
+      title = `About ${host} — ${site}`; desc = plain(S.host_intro || S.host_bio); image = img(S.host_photo) || image;
+      body = `<h1>About ${esc(host)}</h1>${S.host_intro ? `<p>${esc(S.host_intro)}</p>` : ''}${mdLite(S.host_bio)}${mdLite(S.host_why)}${mdLite(S.host_background)}${mdLite(S.host_mission)}`;
+    } else if (kind === 'community') {
+      title = `Community stories — ${site}`;
+    } else if (kind === 'get-involved') {
+      title = `Get involved — ${site}`; desc = `Answer the question of the week, send a voice message or suggest a topic for ${site}.`;
+    } else if (kind === 'contact') {
+      title = `Contact — ${site}`;
     }
 
-    const res = await context.next();
-    if (!(res.headers.get('content-type') || '').includes('text/html')) return res;
-    let html = await res.text();
-    const meta = `<title>${esc(title)}</title>
-<meta name="description" content="${esc(desc)}">
+    const canon = canonical(origin, url.pathname, url.search);
+    const verify = String(S.google_verification || '').replace(/[^\w-]/g, '');
+    const head = `<title>${esc(title)}</title>
+<meta name="description" content="${esc(plain(desc, 160))}">
+<link rel="canonical" href="${esc(canon)}">
+${noindex ? '<meta name="robots" content="noindex">\n' : ''}${verify ? `<meta name="google-site-verification" content="${esc(verify)}">\n` : ''}<meta property="og:site_name" content="${esc(site)}">
 <meta property="og:title" content="${esc(title)}">
-<meta property="og:description" content="${esc(desc)}">
-<meta property="og:type" content="website">
-<meta property="og:url" content="${esc(url.href)}">
-${image ? `<meta property="og:image" content="${esc(image)}">\n<meta name="twitter:card" content="summary_large_image">` : ''}`;
+<meta property="og:description" content="${esc(plain(desc, 200))}">
+<meta property="og:type" content="${kind === 'episode' || kind === 'news' ? 'article' : 'website'}">
+<meta property="og:url" content="${esc(canon)}">
+${image ? `<meta property="og:image" content="${esc(image)}">\n<meta name="twitter:card" content="summary_large_image">\n` : ''}${ld.map((o) => `<script type="application/ld+json">${JSON.stringify(o).replace(/</g, '\\u003c')}</script>`).join('\n')}`;
+
     html = html
       .replace(/<title>[\s\S]*?<\/title>/, '')
-      .replace(/<meta (name="description"|property="og:[a-z]+")[^>]*>\s*/g, '')
-      .replace('</head>', meta + '\n</head>');
-    const headers = new Headers(res.headers);
-    headers.delete('content-length');
-    return new Response(html, { status: res.status, headers });
+      .replace(/<meta (name="description"|property="og:[a-z_]+")[^>]*>\s*/g, '')
+      .replace('</head>', head + '\n</head>');
+    if (body) html = html.replace(/<main id="main">[\s\S]*?<\/main>/, `<main id="main"><div class="wrap prerender">${body}</div></main>`);
+    return new Response(html, { status, headers });
   } catch (err) {
     console.error(err);
-    return context.next();
+    return new Response(html, { status: res.status, headers });
   }
 };
 
-export const config = { path: ['/', '/about', '/episode/*', '/guest/*', '/news/*', '/community/*'] };
+export const config = {
+  path: ['/', '/about', '/episodes', '/episode/*', '/guests', '/guest/*', '/news', '/news/*', '/community', '/community/*', '/tag/*', '/get-involved', '/contact'],
+};

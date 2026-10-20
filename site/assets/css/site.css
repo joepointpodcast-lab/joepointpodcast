@@ -434,3 +434,19 @@ p { margin: 0 0 1em; }
   .nav-socials .socials a { border-color: transparent; padding: .4em; }
 }
 .share-friends .share { justify-content: center; border-top: 0; margin-top: 1rem; padding-top: 0; }
+
+/* ---------- Facebook step-by-step window (Lamin, computer) ---------- */
+.fb-steps { max-width: 30rem; width: calc(100% - 2rem); border: 1px solid var(--line); border-radius: 1.25rem; padding: 1.5rem 1.5rem 1.25rem; background: var(--surface, #161616); color: var(--ink, inherit); }
+.fb-steps::backdrop { background: rgb(0 0 0 / .6); }
+.fb-steps h2 { margin: 0 0 .75rem; font-size: 1.35rem; }
+.fb-steps ol { padding-left: 1.25rem; margin: 0 0 .75rem; line-height: 1.6; }
+.fb-steps li { margin-bottom: .35rem; }
+.fb-steps textarea { width: 100%; margin-top: .4rem; font: inherit; font-size: .85rem; }
+.fb-steps-btns { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1rem; }
+
+/* ---------- Topics (tags) ---------- */
+.topic-tags { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: 1.5rem 0 0; font-size: .9rem; }
+.topic-tags span { color: var(--muted); margin-right: .2rem; }
+.topic-tags a { padding: .25em .8em; border-radius: 999px; border: 1px solid var(--line); color: inherit; text-decoration: none; }
+.topic-tags a:hover { border-color: var(--link); color: var(--link); }
+.page-hero .topic-tags { margin-top: 1rem; }

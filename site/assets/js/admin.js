@@ -4,6 +4,7 @@ import {
   sb, e, excerpt, fmtDate, media, slugify, validUrl, icon, resizeImage, upload, errMsg,
   NETWORKS, POST_TYPES, FONTS, PRESETS, theme, mix, lum, inkOn,
 } from './lib.js';
+import { normTags, plain } from './seo.js';
 
 const $app = document.getElementById('app');
 let S = {};
@@ -275,6 +276,69 @@ function onSubmit(form, handler) {
 }
 const v = (fd, k) => String(fd.get(k) ?? '').trim();
 
+/* ---------- Google & topics (tags) ---------- */
+let SEO_MISSING = false;   // true when update-seo.sql has not been run yet
+const SEO_WARN = ' (Topics and Google text were NOT saved: run update-seo.sql in Supabase first.)';
+
+/** All topics used so far (for the suggestions). Empty when the database has no tags yet. */
+async function allTags() {
+  const res = await Promise.all(['episodes', 'guests', 'posts'].map((t) => sb.from(t).select('tags').limit(1000)));
+  const n = {};
+  for (const r of res) for (const row of r.data || []) for (const t of row.tags || []) n[t] = (n[t] || 0) + 1;
+  return Object.entries(n).sort((a, b) => b[1] - a[1]).map(([t]) => t).slice(0, 40);
+}
+
+/** Panel with topics + optional own Google title/description + a Google preview */
+function seoPanel(r, tags, path) {
+  return `<section class="panel stack seo-panel"><h2>Topics & Google</h2>
+    <label class="field"><span>Topics (tags)</span>
+      <small>Separate with commas, e.g. <i>Gambia, business, family</i>. Every topic gets its own page that Google can find, and visitors can click it. Tip: 3–6 topics per item.</small>
+      <input name="tags" value="${e((r.tags || []).join(', '))}" placeholder="gambia, business, family" autocomplete="off"></label>
+    ${tags.length ? `<div class="tag-suggest"><small>Used before (click to add):</small>${tags.map((t) => `<button type="button" data-addtag="${e(t)}">#${e(t)}</button>`).join('')}</div>` : ''}
+    <details class="seo-more"${r.seo_title || r.seo_description ? ' open' : ''}><summary>Google text (optional — leave empty and the site does it for you)</summary>
+      <label class="field"><span>Title in Google <em class="seo-count" data-count="seo_title"></em></span><small>Best under 60 characters. Say what it is about, e.g. <i>Starting a business in The Gambia — with Fatou</i>.</small>
+        <input name="seo_title" value="${e(r.seo_title || '')}" maxlength="120"></label>
+      <label class="field"><span>Description in Google <em class="seo-count" data-count="seo_description"></em></span><small>Best 120–160 characters: what will people hear or read?</small>
+        <textarea name="seo_description" rows="3" maxlength="300">${e(r.seo_description || '')}</textarea></label>
+    </details>
+    <div class="g-preview" aria-hidden="true"><small>How it can look in Google:</small><cite>${e(location.host)} › ${e(path)}</cite><b data-g="title"></b><p data-g="desc"></p></div>
+  </section>`;
+}
+/** Live counters + Google preview. auto() returns {title, desc} that the site would use itself. */
+function bindSeo(form, auto) {
+  const upd = () => {
+    const t = form.elements.seo_title?.value.trim(), d = form.elements.seo_description?.value.trim();
+    const a = auto();
+    for (const [k, max] of [['seo_title', 60], ['seo_description', 160]]) {
+      const c = form.querySelector(`[data-count="${k}"]`), len = form.elements[k]?.value.trim().length || 0;
+      if (c) { c.textContent = len ? `${len}/${max}` : ''; c.classList.toggle('over', len > max); }
+    }
+    const title = t || a.title, desc = plain(d || a.desc, 160);
+    form.querySelector('[data-g=title]').textContent = title.length > 62 ? title.slice(0, 60) + '…' : title;
+    form.querySelector('[data-g=desc]').textContent = desc || '—';
+  };
+  form.addEventListener('input', upd); upd();
+  form.querySelectorAll('[data-addtag]').forEach((b) => b.addEventListener('click', () => {
+    const inp = form.elements.tags;
+    inp.value = normTags(inp.value + ',' + b.dataset.addtag).join(', ');
+    dirty = true; b.disabled = true;
+  }));
+}
+const seoData = (fd) => ({ tags: normTags(v(fd, 'tags')), seo_title: v(fd, 'seo_title'), seo_description: v(fd, 'seo_description') });
+
+/** Insert/update a row; if the database doesn't know tags/seo yet, save without them (and warn). */
+async function saveRow(table, data, id) {
+  const run = (d) => (id ? sb.from(table).update(d).eq('id', id) : sb.from(table).insert(d)).select('id,slug').single();
+  let res = await run(data);
+  SEO_MISSING = false;
+  if (res.error && /tags|seo_/.test(res.error.message || '')) {
+    const d = { ...data }; delete d.tags; delete d.seo_title; delete d.seo_description;
+    res = await run(d); SEO_MISSING = true;
+  }
+  return must(res);
+}
+const site = () => S.site_title || 'Joe Point Podcast';
+
 /* =========================================================
    Overview
    ========================================================= */
@@ -331,12 +395,13 @@ async function viewEpisodes(_, main) {
 
 async function viewEpisode(id, main) {
   const isNew = id === 'new' || !id;
-  const [row, guests, cats, sel, maxNr] = await Promise.all([
+  const [row, guests, cats, sel, maxNr, tagList] = await Promise.all([
     isNew ? null : sb.from('episodes').select('*').eq('id', id).single().then(must),
     sb.from('guests').select('id,name').order('name').then(must),
     sb.from('categories').select('*').order('sort').then(must),
     isNew ? (+PARAMS.get('guest') ? [+PARAMS.get('guest')] : []) : sb.from('episode_guests').select('guest_id').eq('episode_id', id).then(must).then((r) => r.map((x) => x.guest_id)),
     sb.from('episodes').select('number').order('number', { ascending: false, nullsFirst: false }).limit(1).then(must),
+    allTags(),
   ]);
   const r = row || { status: 'published', number: (maxNr[0]?.number || 0) + 1, season: 1 };   // episodes go live straight away
   const withGuest = isNew && sel.length ? guests.find((g) => g.id === sel[0]) : null;
@@ -350,6 +415,7 @@ async function viewEpisode(id, main) {
         ${fArea('excerpt', 'Short summary', r.excerpt, { rows: 3, help: '1–3 sentences. Shown on the overview page, in Google and in the WhatsApp preview.' })}
         ${fArea('shownotes', 'Show notes', r.shownotes, { rows: 14, md: true, help: 'Topics, timestamps (e.g. <code>- 12:30 About family</code>), links and tips. ' + MD_HELP })}
       </section>
+      ${seoPanel(r, tagList, 'episode › ' + (r.slug || 'new'))}
       <section class="panel stack"><h2>From Riverside (optional)</h2>
         ${fArea('transcript', 'Transcript', r.transcript, { rows: 8, help: 'In Riverside: open the recording → <b>Transcript</b> → copy everything and paste it here. Visitors can read along, Google finds the episode better, and the search on the site also searches what was said. Times like 12:30 become clickable.' })}
         ${fArea('clips', 'Highlights / clips', r.clips, { rows: 4, help: 'One link per line — for example your Riverside <b>Magic Clips</b> after posting them on YouTube Shorts, TikTok or Instagram. YouTube clips get a player on the page.' })}
@@ -379,7 +445,9 @@ async function viewEpisode(id, main) {
     </aside>
   </form>`;
 
-  onSubmit(main.querySelector('#f'), async (action, fd) => {
+  const epForm = main.querySelector('#f');
+  bindSeo(epForm, () => ({ title: `${epForm.elements.title.value.trim() || 'Episode title'} — ${site()}`, desc: epForm.elements.excerpt.value || epForm.elements.shownotes.value }));
+  onSubmit(epForm, async (action, fd) => {
     const form = main.querySelector('#f');
     if (action === 'delete') {
       must(await sb.from('episodes').delete().eq('id', row.id));
@@ -401,16 +469,14 @@ async function viewEpisode(id, main) {
       category_id: v(fd, 'category_id') ? +v(fd, 'category_id') : null,
       status: v(fd, 'status') === 'published' ? 'published' : 'draft',
       published_at: fromLocalInput(v(fd, 'published_at')),
-      cover: cover.value, audio: audio.value, updated_at: new Date().toISOString(),
+      cover: cover.value, audio: audio.value, updated_at: new Date().toISOString(), ...seoData(fd),
     };
-    const saved = row
-      ? must(await sb.from('episodes').update(data).eq('id', row.id).select('id,slug').single())
-      : must(await sb.from('episodes').insert(data).select('id,slug').single());
+    const saved = await saveRow('episodes', data, row?.id);
     must(await sb.from('episode_guests').delete().eq('episode_id', saved.id));
     const gs = fd.getAll('guests').map((g) => ({ episode_id: saved.id, guest_id: +g }));
     if (gs.length) must(await sb.from('episode_guests').insert(gs));
     await trash([...cover.trash, ...audio.trash]);
-    const epMsg = data.status === 'draft' ? 'Saved as draft — not visible on the site yet.' : (new Date(data.published_at) > new Date() ? 'Saved — it will go live on the publish date.' : 'Saved — the episode is live on the site.');
+    const epMsg = (data.status === 'draft' ? 'Saved as draft — not visible on the site yet.' : (new Date(data.published_at) > new Date() ? 'Saved — it will go live on the publish date.' : 'Saved — the episode is live on the site.')) + (SEO_MISSING ? SEO_WARN : '');
     if (backToSite(epMsg, isLive(data) ? `/episode/${saved.slug}` : '')) return;
     go(`#/episode/${saved.id}`, ['ok', epMsg]);
   });
@@ -432,10 +498,11 @@ const GUEST_SOC = { instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube'
 
 async function viewGuest(id, main) {
   const isNew = id === 'new' || !id;
-  const [row, eps, sel] = await Promise.all([
+  const [row, eps, sel, tagList] = await Promise.all([
     isNew ? null : sb.from('guests').select('*').eq('id', id).single().then(must),
     sb.from('episodes').select('id,title,number').order('published_at', { ascending: false }).then(must),
     isNew ? [] : sb.from('episode_guests').select('episode_id').eq('guest_id', id).then(must).then((r) => r.map((x) => x.episode_id)),
+    allTags(),
   ]);
   const r = row || {};
   main.innerHTML = `
@@ -448,6 +515,7 @@ async function viewGuest(id, main) {
         ${fText('tagline', 'Who is the guest? (one line)', r.tagline, { placeholder: 'e.g. Entrepreneur from Banjul, founder of …' })}
         ${fArea('bio', 'Bio', r.bio, { rows: 10, md: true, help: MD_HELP })}
       </section>
+      ${seoPanel(r, tagList, 'guest › ' + (r.slug || 'new'))}
       <section class="panel stack"><h2>Guest's social media</h2><p class="muted small">Paste the full link to the profile. Empty fields are not shown.</p>
         <div class="row-2">${Object.entries(GUEST_SOC).map(([k, l]) => fText(k, l, r[k], { placeholder: 'https://…', attrs: ' inputmode="url"' })).join('')}</div></section>
     </div>
@@ -459,7 +527,9 @@ async function viewGuest(id, main) {
       <div class="actions"><button class="btn" value="save">Save</button>${row ? '<button class="btn btn-danger" value="delete" data-confirm="Delete this guest?">Delete</button>' : ''}</div>
     </aside>
   </form>`;
-  onSubmit(main.querySelector('#f'), async (action, fd) => {
+  const gForm = main.querySelector('#f');
+  bindSeo(gForm, () => ({ title: `${gForm.elements.name.value.trim() || 'Name'}${gForm.elements.tagline.value.trim() ? ' — ' + gForm.elements.tagline.value.trim() : ''} | ${site()}`, desc: gForm.elements.tagline.value || gForm.elements.bio.value }));
+  onSubmit(gForm, async (action, fd) => {
     const form = main.querySelector('#f');
     if (action === 'delete') {
       must(await sb.from('guests').delete().eq('id', row.id));
@@ -470,15 +540,15 @@ async function viewGuest(id, main) {
     const photo = await fileField(form, 'photo', row?.photo, 'guests');
     const data = { name: v(fd, 'name'), slug: await uniqueSlug('guests', v(fd, 'slug') || v(fd, 'name'), row?.id), tagline: v(fd, 'tagline'), bio: v(fd, 'bio'), photo: photo.value };
     for (const k of Object.keys(GUEST_SOC)) data[k] = validUrl(v(fd, k));
-    const saved = row
-      ? must(await sb.from('guests').update(data).eq('id', row.id).select('id,slug').single())
-      : must(await sb.from('guests').insert(data).select('id,slug').single());
+    Object.assign(data, seoData(fd));
+    const saved = await saveRow('guests', data, row?.id);
     must(await sb.from('episode_guests').delete().eq('guest_id', saved.id));
     const links = fd.getAll('episodes').map((x) => ({ episode_id: +x, guest_id: saved.id }));
     if (links.length) must(await sb.from('episode_guests').insert(links));
     await trash(photo.trash);
-    if (backToSite('Guest saved.', `/guest/${saved.slug}`)) return;
-    go(`#/guest/${saved.id}`, ['ok', row ? 'Guest saved.' : 'Guest saved. Now you can create an episode with this guest (button at the top).']);
+    const warn = SEO_MISSING ? SEO_WARN : '';
+    if (backToSite('Guest saved.' + warn, `/guest/${saved.slug}`)) return;
+    go(`#/guest/${saved.id}`, ['ok', (row ? 'Guest saved.' : 'Guest saved. Now you can create an episode with this guest (button at the top).') + warn]);
   });
 }
 
@@ -530,10 +600,11 @@ async function viewPosts(_, main) {
 
 async function viewPost(id, main) {
   const isNew = id === 'new' || !id;
-  const [row, imgs, eps] = await Promise.all([
+  const [row, imgs, eps, tagList] = await Promise.all([
     isNew ? null : sb.from('posts').select('*').eq('id', id).single().then(must),
     isNew ? [] : sb.from('post_images').select('*').eq('post_id', id).order('sort').order('id').then(must),
     sb.from('episodes').select('id,title,number').order('published_at', { ascending: false }).then(must),
+    allTags(),
   ]);
   const r = row || { type: 'nieuws', status: 'published' };   // news goes live straight away
   main.innerHTML = `
@@ -542,6 +613,7 @@ async function viewPost(id, main) {
   <form class="edit-grid" id="f">
     <div class="stack">
       <section class="panel stack">${fText('title', 'Title', r.title, { required: true })}${fArea('excerpt', 'Short intro', r.excerpt, { rows: 2 })}${fArea('body', 'Text', r.body, { rows: 14, md: true, help: MD_HELP })}</section>
+      ${seoPanel(r, tagList, 'news › ' + (r.slug || 'new'))}
       <section class="panel stack"><h2>Link (optional)</h2>
         ${fSelect('episode_id', 'Link to an episode', r.episode_id ?? '', [['', '— no episode —'], ...eps.map((ep) => [ep.id, (ep.number ? '#' + ep.number + ' ' : '') + ep.title])], 'Shows a "Listen to the episode" button under the post.')}
         ${fText('link_url', 'Link to another page', r.link_url, { attrs: ' inputmode="url"', placeholder: 'https://www.facebook.com/…', help: 'For example a Facebook or Instagram post, a YouTube video or a Spotify episode. YouTube and Spotify links get a player.' })}
@@ -563,7 +635,9 @@ async function viewPost(id, main) {
       <div class="actions"><button class="btn" value="save">Save</button>${row ? '<button class="btn btn-danger" value="delete" data-confirm="Delete this post?">Delete</button>' : ''}</div>
     </aside>
   </form>`;
-  onSubmit(main.querySelector('#f'), async (action, fd) => {
+  const pForm = main.querySelector('#f');
+  bindSeo(pForm, () => ({ title: `${pForm.elements.title.value.trim() || 'Post title'} — ${site()}`, desc: pForm.elements.excerpt.value || pForm.elements.body.value }));
+  onSubmit(pForm, async (action, fd) => {
     const form = main.querySelector('#f');
     if (action === 'delete') {
       must(await sb.from('posts').delete().eq('id', row.id));
@@ -577,10 +651,9 @@ async function viewPost(id, main) {
       type: POST_TYPES[v(fd, 'type')] ? v(fd, 'type') : 'nieuws', excerpt: v(fd, 'excerpt'), body: v(fd, 'body'),
       status: v(fd, 'status') === 'draft' ? 'draft' : 'published', published_at: fromLocalInput(v(fd, 'published_at')), image: image.value,
       episode_id: v(fd, 'episode_id') ? +v(fd, 'episode_id') : null, link_url: validUrl(v(fd, 'link_url')), link_label: v(fd, 'link_label'),
+      ...seoData(fd),
     };
-    const saved = row
-      ? must(await sb.from('posts').update(data).eq('id', row.id).select('id,slug').single())
-      : must(await sb.from('posts').insert(data).select('id,slug').single());
+    const saved = await saveRow('posts', data, row?.id);
     const rm = fd.getAll('rm_img').map(Number);
     for (const im of imgs) {
       if (rm.includes(im.id)) { must(await sb.from('post_images').delete().eq('id', im.id)); await trash([im.file]); }
@@ -594,8 +667,9 @@ async function viewPost(id, main) {
       catch (err) { failed.push(`${f.name}: ${errMsg(err)}`); }
     }
     await trash(image.trash);
-    if (!failed.length && backToSite(data.status === 'draft' ? 'Saved as draft — not visible on the site yet.' : 'Saved — the post is live on the site.', isLive(data) ? `/news/${saved.slug}` : '')) return;
-    go(`#/post/${saved.id}`, failed.length ? ['error', 'Saved, but not all photos could be uploaded: ' + failed.join(' · ')] : ['ok', data.status === 'draft' ? 'Saved as draft — not visible on the site yet.' : (new Date(data.published_at) > new Date() ? 'Saved — it will go live on the publish date.' : 'Saved — the post is live on the site.')]);
+    const warn = SEO_MISSING ? SEO_WARN : '';
+    if (!failed.length && backToSite((data.status === 'draft' ? 'Saved as draft — not visible on the site yet.' : 'Saved — the post is live on the site.') + warn, isLive(data) ? `/news/${saved.slug}` : '')) return;
+    go(`#/post/${saved.id}`, failed.length ? ['error', 'Saved, but not all photos could be uploaded: ' + failed.join(' · ')] : ['ok', data.status === 'draft' ? 'Saved as draft — not visible on the site yet.' : (new Date(data.published_at) > new Date() ? 'Saved — it will go live on the publish date.' : 'Saved — the post is live on the site.') + warn]);
   });
 }
 
@@ -770,7 +844,7 @@ async function viewMessage(id, main) {
 /* =========================================================
    Settings
    ========================================================= */
-const TABS = { general: 'Homepage & general', style: 'Look & feel', host: 'About Lamin', social: 'Social media', contact: 'Contact', getinvolved: 'Get involved', credit: 'Website credit', account: 'Password' };
+const TABS = { general: 'Homepage & general', style: 'Look & feel', host: 'About Lamin', social: 'Social media', contact: 'Contact', getinvolved: 'Get involved', credit: 'Website credit', google: 'Google', account: 'Password' };
 
 function settingsFields() {
   const soc = {};
@@ -809,6 +883,10 @@ function settingsFields() {
     credit: {
       credit_name: ['Website made by', 'text', 'Shown at the bottom of every page, e.g. "Website by Monique". Leave empty to hide.'],
       credit_whatsapp: ['WhatsApp number of the website builder', 'text', 'Full number with country code, e.g. +31612345678. Visitors who want a website can send a WhatsApp message. Leave empty to hide the button.'],
+    },
+    google: {
+      seo_description: ['Description of the podcast for Google', 'area', 'Shown under the name of the website in Google. 1–2 sentences (max ~160 characters), e.g. "Joe Point Podcast with Lamin: real conversations about life, culture and business — from The Gambia to the world."'],
+      google_verification: ['Google Search Console code', 'text', 'Google Search Console → Add property → URL prefix → HTML tag. Paste the whole tag or only the code — the site picks out the code.'],
     },
     getinvolved: {
       question_active: ['Show the question of the week', 'check'],
@@ -868,7 +946,12 @@ async function viewSettings(tab, main) {
       <div class="mini-card"><span class="mini-tag">Gambia & Diaspora</span><b>Episode 1</b><small>45 min</small></div></div></div>
     <p class="muted small">A rough sketch. After saving you'll see the real result on the site; text colours are adjusted automatically so everything stays readable.</p></aside>` : '';
 
-  main.innerHTML = head + `<form id="f" class="${tab === 'style' ? 'style-grid' : ''}"><div class="panel stack">${presets}${html}<div><button class="btn">Save</button></div></div>${preview}</form>`;
+  const googleHelp = tab === 'google' ? `<div class="note"><b>Found on Google — in 4 steps</b><ol>
+    <li>Go to <a href="https://search.google.com/search-console" target="_blank" rel="noopener">Google Search Console</a> and log in with the podcast's Google account.</li>
+    <li>Add property → <b>URL prefix</b> → <code>${e(location.origin)}</code> → choose <b>HTML tag</b>, copy it and paste it below. Save, then click <b>Verify</b> in Google.</li>
+    <li>In Search Console → <b>Sitemaps</b>: add <code>${e(location.origin)}/sitemap.xml</code>.</li>
+    <li>Give every episode, guest and news post a few <b>topics</b>. Google usually needs a few days to a few weeks.</li></ol></div>` : '';
+  main.innerHTML = head + `<form id="f" class="${tab === 'style' ? 'style-grid' : ''}"><div class="panel stack">${presets}${googleHelp}${html}<div><button class="btn">Save</button></div></div>${preview}</form>`;
 
   if (tab === 'style') setupStylePreview(main);
 
@@ -884,6 +967,7 @@ async function viewSettings(tab, main) {
       else if (type === 'url') val = validUrl(v(fd, k));
       else if (type === 'email') { val = v(fd, k); if (val && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(val)) throw new Error('Invalid email address.'); }
       else val = v(fd, k);
+      if (k === 'google_verification') val = (val.match(/content=["']([^"']+)["']/) || [, val])[1].replace(/[^\w-]/g, '');
       rows.push({ key: k, value: val });
     }
     must(await sb.from('settings').upsert(rows));

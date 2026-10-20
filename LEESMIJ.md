@@ -88,10 +88,25 @@ Bij elke aflevering kan Lamin dan het transcript uit Riverside plakken (wordt do
 
 Geen SQL nodig: alleen de bestanden uploaden in GitHub en op **Commit changes** klikken.
 - Onder elke aflevering, gast, nieuwsbericht en verhaal staan knoppen **Facebook**, **WhatsApp** en **Copy link**. In de gouden balk (als Lamin is ingelogd) staat een blauwe knop **📣 Share on Facebook**: die opent Facebook én kopieert een kant-en-klare tekst om te plakken.
-- Facebook-knop: op de **telefoon** opent het deelmenu van de telefoon (kies de Facebook-app), op de **computer** een klein Facebook-venster boven de site.
+- Facebook-knop: op de **telefoon** opent het deelmenu van de telefoon (kies de Facebook-app). Op de **computer** krijgt Lamin (ingelogd) een venstertje met 4 stappen: tekst is gekopieerd → **Open Facebook** opent zijn podcastpagina → **Create post** → plakken → **Post**. Bezoekers krijgen het Facebook-deelvenster in een nieuw tabblad.
 - Delen staat bovenaan elke aflevering, gast en nieuwsbericht; op de lijsten heeft elke kaart een blauwe **Share**-knop. Bezoekers hebben ook **Share with friends** (telefoon: deelmenu met WhatsApp, Messenger, sms…; computer: link kopiëren) en op de homepage een blok "Enjoying Joe Point?".
 - **Settings → Social media**: Facebook, Instagram, YouTube en TikTok invullen. Alleen ingevulde links verschijnen (bovenin als icoon, onderaan en op de contactpagina).
 - **Settings → Website credit**: naam en WhatsApp-nummer van de websitebouwer. Onderaan de site verschijnt dan "Website by … · Want a website like this?" met een WhatsApp-knop. Leeg laten = niets tonen.
+
+## Update: beter gevonden worden in Google (SEO)
+
+**Eerst** in Supabase → **SQL Editor** de inhoud van `supabase/update-seo.sql` plakken en op **Run** klikken, **daarna** de bestanden in GitHub uploaden en committen.
+
+- **Onderwerpen (tags)** bij elke aflevering, gast en nieuwsbericht (blok "Topics & Google"). Elk onderwerp krijgt een eigen pagina, bijv. `/tag/gambia`. Eerder gebruikte onderwerpen staan eronder om aan te klikken.
+- **Google-titel en -beschrijving** per item (optioneel; leeg = de site maakt ze zelf). Met een voorbeeld van hoe het in Google kan staan.
+- **Settings → Google**: beschrijving van de podcast voor Google + de code van Google Search Console.
+- Automatisch: `/sitemap.xml` (lijst van alle pagina's), `/robots.txt`, één vast adres per pagina, podcast-labels voor Google, en Google krijgt de volledige tekst van elke pagina meteen (show notes, transcript, bio).
+
+**Google Search Console (eenmalig, ± 10 minuten)**
+1. Ga naar search.google.com/search-console en log in met het Google-account van de podcast.
+2. **Add property** → **URL prefix** → `https://joepointpodcast.netlify.app` → kies **HTML tag** en kopieer die.
+3. Plak de tag in het beheer bij **Settings → Google** en klik **Save**. Klik daarna in Google op **Verify**.
+4. In Search Console → **Sitemaps**: vul `sitemap.xml` in en klik **Submit**.
 
 ## Wat Lamin zelf kan (via /admin)
 
