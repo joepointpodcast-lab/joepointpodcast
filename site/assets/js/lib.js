@@ -186,6 +186,7 @@ const P = {
   pin: '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>',
   quote: '<path d="M9 8H6a2 2 0 0 0-2 2v3h5v-5zM9 8c0 4-1 7-5 9M20 8h-3a2 2 0 0 0-2 2v3h5v-5zM20 8c0 4-1 7-5 9"/>',
   share: '<circle cx="18" cy="5.5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="18.5" r="2.5"/><path d="m8.2 10.8 7.6-4.1M8.2 13.2l7.6 4.1"/>',
+  chart: '<path d="M4 20V11M10 20V5M16 20v-6M3 20.5h18"/>',
   stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/>',
 };
 export const icon = (n) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || P.link}</svg>`;

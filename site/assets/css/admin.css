@@ -220,3 +220,34 @@ audio { width: 100%; }
 .g-preview p { margin: 0; font-size: .87rem; color: #4d5156; }
 .note { border: 1px solid var(--line); border-radius: .75rem; padding: .9rem 1.1rem; }
 .note ol { margin: .5rem 0 0; padding-left: 1.2rem; line-height: 1.6; }
+
+/* ---------- Visitors ---------- */
+.visitors { margin-bottom: 1.25rem; }
+.visitors-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .75rem; }
+.visitors-head h2 { margin: 0; }
+.vtiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+.vtiles div, .vdev div { border: 1px solid var(--line); border-radius: .75rem; padding: .75rem .9rem; }
+.vtiles b, .vdev b { display: block; font-size: 1.7rem; line-height: 1.1; color: var(--ink); }
+.vtiles span, .vdev span { font-size: .85rem; color: var(--muted); }
+.vtiles em { font-style: normal; font-weight: 600; margin-left: .2rem; }
+.vtiles em.up { color: var(--ok); } .vtiles em.down { color: var(--bad); }
+.vchart { position: relative; margin: 0; }
+.vchart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.vchart text { font-size: 11px; fill: var(--muted); }
+.vchart .grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 3; }
+.vchart .axis { stroke: var(--line); stroke-width: 1; }
+.vchart .bar path { fill: var(--accent); }
+.vchart .bar .hit { fill: transparent; }
+.vchart .bar.on .hit, .vchart .bar:focus .hit { fill: color-mix(in srgb, var(--ink) 6%, transparent); }
+.vchart .bar:focus { outline: none; }
+.vtip { position: absolute; top: 0; background: var(--ink); color: var(--surface); font-size: .8rem; padding: .35rem .6rem; border-radius: .4rem; white-space: nowrap; pointer-events: none; }
+.hbars { list-style: none; padding: 0; margin: 0; display: grid; gap: .55rem; }
+.hbars li { display: grid; grid-template-columns: minmax(0, 1fr) 30% auto; gap: .6rem; align-items: center; font-size: .9rem; }
+.hb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb-name a { color: inherit; }
+.hb-track { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--line) 60%, transparent); overflow: hidden; }
+.hb-track i { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+.hbars b { min-width: 2.5ch; text-align: right; font-variant-numeric: tabular-nums; }
+.vdev { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; }
+.mt { margin-top: 1.5rem; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

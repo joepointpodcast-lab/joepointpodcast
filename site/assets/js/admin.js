@@ -122,6 +122,7 @@ function showNewPassword() {
    ========================================================= */
 const MENU = [
   ['dashboard', 'Overview', 'headphones', ['dashboard']],
+  ['stats', 'Visitors', 'chart', ['stats']],
   ['episodes', 'Episodes', 'play', ['episodes', 'episode']],
   ['guests', 'Guests', 'mic', ['guests', 'guest']],
   ['categories', 'Categories', 'link', ['categories']],
@@ -134,7 +135,7 @@ const MENU = [
 const VIEWS = {
   dashboard: viewDashboard, episodes: viewEpisodes, episode: viewEpisode, guests: viewGuests, guest: viewGuest,
   categories: viewCategories, posts: viewPosts, post: viewPost, stories: viewStories, story: viewStory,
-  inbox: viewInbox, message: viewMessage, settings: viewSettings,
+  inbox: viewInbox, message: viewMessage, settings: viewSettings, stats: viewStats,
 };
 
 async function route() {
@@ -355,6 +356,7 @@ async function viewDashboard(_, main) {
     sb.from('stories').select('id,title,name,created_at').eq('status', 'pending').order('created_at', { ascending: false }).limit(5).then(must),
     sb.from('submissions').select('id,type,name,subject,message,upload_path,is_read').order('created_at', { ascending: false }).limit(6).then(must),
   ]);
+  const st = await loadStats(30);
   main.innerHTML = `
   <header class="page-head"><div><h1>Hi ${e(S.host_name || 'Lamin')} 👋</h1><p class="muted">What would you like to do today?</p></div></header>
   <div class="quick">
@@ -364,6 +366,7 @@ async function viewDashboard(_, main) {
     <a class="quick-btn" href="#/settings/getinvolved">${icon('headphones')}<span>Question of the week</span></a>
     <a class="quick-btn" href="#/settings/style">${icon('website')}<span>Colours & logo</span></a>
   </div>
+  ${visitorsPanel(st)}
   <div class="stats">
     <a href="#/episodes"><b>${eps}</b><span>${eps === 1 ? 'episode' : 'episodes'} live${drafts ? ` · ${drafts} draft` : ''}</span></a>
     <a href="#/guests"><b>${guests}</b><span>${guests === 1 ? 'guest' : 'guests'}</span></a>
@@ -377,6 +380,133 @@ async function viewDashboard(_, main) {
     <section class="panel"><h2>Latest submissions</h2>
       ${inbox.length ? `<ul class="list">${inbox.map((m) => `<li class="${m.is_read ? '' : 'unread'}"><a href="#/message/${m.id}"><strong>${e(INBOX[m.type])}${m.upload_path ? ' 🎙️' : ''}</strong><small>${e(m.name || 'Anonymous')} · ${e(excerpt(m.subject || m.message, 60))}</small></a></li>`).join('')}</ul>` : '<p class="muted">No submissions yet.</p>'}</section>
   </div>`;
+  bindChartTips(main);
+}
+
+/* =========================================================
+   Visitors (statistics)
+   ========================================================= */
+async function loadStats(days) {
+  const { data, error } = await sb.rpc('visitor_stats', { p_days: days });
+  return error ? { error } : data;
+}
+const n0 = (x) => Number(x || 0).toLocaleString('en');
+const NOT_ON = `<p class="muted">The visitor counter is not switched on yet. In Supabase → SQL Editor, run <code>update-stats.sql</code> once.</p>`;
+
+/** Short summary on the dashboard */
+function visitorsPanel(st) {
+  if (st.error) return `<section class="panel visitors"><h2>Visitors</h2>${NOT_ON}</section>`;
+  const t = st.totals;
+  return `<section class="panel visitors"><div class="visitors-head"><h2>Visitors</h2><a class="btn btn-ghost btn-sm" href="#/stats">All statistics →</a></div>
+    <div class="vtiles">
+      <div><b>${n0(t.today_visits)}</b><span>today</span></div>
+      <div><b>${n0(t.week_visits)}</b><span>last 7 days</span></div>
+      <div><b>${n0(t.period_visits)}</b><span>last 30 days</span></div>
+      <div><b>${n0(t.all_views)}</b><span>pages viewed in total</span></div>
+    </div>
+    ${t.all_views ? dailyChart(st.daily.slice(-14), 120) : `<p class="muted small">No visitors counted yet — the counter starts as soon as this update is online. Your own visits (logged in) are not counted.</p>`}</section>`;
+}
+
+/** Bar chart: visits per day (one series, so no legend; hover/tap a bar for the numbers) */
+function dailyChart(daily, h = 200) {
+  const W = 720, H = h, padL = 34, padB = 22, padT = 8;
+  const max = Math.max(1, ...daily.map((d) => d.visits));
+  const nice = max <= 4 ? 4 : max <= 10 ? 10 : Math.ceil(max / 10) * 10;   // half of it is always a whole number
+  const n = daily.length, slot = (W - padL) / n, bw = Math.max(2, Math.min(28, slot - 2));
+  const y = (v) => padT + (H - padT - padB) * (1 - v / nice);
+  const base = y(0);
+  const day = (s, o) => new Date(s + 'T12:00:00').toLocaleDateString('en-GB', o);
+  const bars = daily.map((d, i) => {
+    const x = padL + i * slot + (slot - bw) / 2, top = y(d.visits), r = Math.min(4, bw / 2, base - top);
+    const path = d.visits ? `M${x},${base}V${top + r}Q${x},${top} ${x + r},${top}H${x + bw - r}Q${x + bw},${top} ${x + bw},${top + r}V${base}Z` : '';
+    const tip = `${day(d.day, { weekday: 'short', day: 'numeric', month: 'short' })}: ${n0(d.visits)} ${d.visits === 1 ? 'visit' : 'visits'} · ${n0(d.views)} pages viewed`;
+    return `<g class="bar" tabindex="0" data-tip="${e(tip)}"><rect class="hit" x="${padL + i * slot}" y="${padT}" width="${slot}" height="${base - padT}"/>${path ? `<path d="${path}"/>` : ''}</g>`;
+  }).join('');
+  const labels = [0, Math.floor((n - 1) / 2), n - 1].filter((v, i, a) => a.indexOf(v) === i)
+    .map((i) => `<text x="${padL + i * slot + slot / 2}" y="${H - 6}" text-anchor="middle">${e(day(daily[i].day, { day: 'numeric', month: 'short' }))}</text>`).join('');
+  return `<figure class="vchart"><figcaption class="sr">Visits per day</figcaption>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Visits per day, highest ${max}">
+      <line class="grid" x1="${padL}" x2="${W}" y1="${y(nice)}" y2="${y(nice)}"/><line class="grid" x1="${padL}" x2="${W}" y1="${y(nice / 2)}" y2="${y(nice / 2)}"/>
+      <line class="axis" x1="${padL}" x2="${W}" y1="${base}" y2="${base}"/>
+      <text x="${padL - 6}" y="${y(nice) + 4}" text-anchor="end">${nice}</text><text x="${padL - 6}" y="${y(nice / 2) + 4}" text-anchor="end">${nice / 2}</text><text x="${padL - 6}" y="${base + 4}" text-anchor="end">0</text>
+      ${bars}${labels}</svg><div class="vtip" hidden></div></figure>`;
+}
+function bindChartTips(root) {
+  root.querySelectorAll('.vchart').forEach((fig) => {
+    const tip = fig.querySelector('.vtip');
+    const show = (g) => {
+      tip.textContent = g.dataset.tip; tip.hidden = false;
+      const r = g.getBoundingClientRect(), f = fig.getBoundingClientRect();
+      tip.style.left = Math.min(Math.max(0, r.left - f.left + r.width / 2 - tip.offsetWidth / 2), f.width - tip.offsetWidth) + 'px';
+      fig.querySelectorAll('.bar.on').forEach((b) => b.classList.remove('on')); g.classList.add('on');
+    };
+    fig.querySelectorAll('.bar').forEach((g) => {
+      g.addEventListener('mouseenter', () => show(g)); g.addEventListener('focus', () => show(g)); g.addEventListener('click', () => show(g));
+    });
+    fig.addEventListener('mouseleave', () => { tip.hidden = true; fig.querySelectorAll('.bar.on').forEach((b) => b.classList.remove('on')); });
+  });
+}
+
+const SRC = {
+  direct: ['🔗', 'Direct (typed in, bookmark, home screen, WhatsApp…)'], facebook: ['📘', 'Facebook'], instagram: ['📸', 'Instagram'],
+  whatsapp: ['💬', 'WhatsApp'], google: ['🔎', 'Google'], 'other search': ['🔎', 'Other search engines'], youtube: ['▶️', 'YouTube'],
+  tiktok: ['🎵', 'TikTok'], x: ['✖️', 'X (Twitter)'], linkedin: ['💼', 'LinkedIn'], spotify: ['🎧', 'Spotify'], 'apple podcasts': ['🎧', 'Apple Podcasts'],
+};
+const PAGE_NAMES = { '/': 'Homepage', '/about': 'About Lamin', '/episodes': 'All episodes', '/guests': 'All guests', '/news': 'All news', '/community': 'Community stories', '/community/share': 'Share your story', '/get-involved': 'Get involved', '/contact': 'Contact' };
+
+/** Give page addresses a readable name (episode/guest/news titles) */
+async function pageTitles(paths) {
+  const pick = (pre) => paths.filter((p) => p.startsWith(pre)).map((p) => decodeURIComponent(p.slice(pre.length)));
+  const [eps, gs, ps] = await Promise.all([
+    pick('/episode/').length ? sb.from('episodes').select('slug,title').in('slug', pick('/episode/')) : { data: [] },
+    pick('/guest/').length ? sb.from('guests').select('slug,name').in('slug', pick('/guest/')) : { data: [] },
+    pick('/news/').length ? sb.from('posts').select('slug,title').in('slug', pick('/news/')) : { data: [] },
+  ]);
+  const out = { ...PAGE_NAMES };
+  (eps.data || []).forEach((r) => { out['/episode/' + r.slug] = '🎙️ ' + r.title; });
+  (gs.data || []).forEach((r) => { out['/guest/' + r.slug] = '👤 ' + r.name; });
+  (ps.data || []).forEach((r) => { out['/news/' + r.slug] = '📰 ' + r.title; });
+  paths.filter((p) => p.startsWith('/tag/')).forEach((p) => { out[p] = 'Topic #' + decodeURIComponent(p.slice(5)); });
+  paths.filter((p) => /^\/community\/\d+$/.test(p)).forEach((p) => { out[p] = 'Story #' + p.split('/')[2]; });
+  return out;
+}
+
+async function viewStats(arg, main) {
+  const days = [7, 30, 90, 365].includes(+arg) ? +arg : 30;
+  const st = await loadStats(days);
+  const head = `<header class="page-head"><div><h1>Visitors</h1><p class="muted">How many people visit the website, which pages they read and where they come from. Your own visits (logged in) and search-engine robots are not counted. No cookies, no names.</p></div></header>`;
+  if (st.error) { main.innerHTML = head + `<section class="panel">${NOT_ON}</section>`; return; }
+  const t = st.totals;
+  const names = await pageTitles(st.pages.map((p) => p.path));
+  const change = t.prev_visits ? Math.round((t.period_visits - t.prev_visits) / t.prev_visits * 100) : null;
+  const label = { 7: 'last 7 days', 30: 'last 30 days', 90: 'last 3 months', 365: 'last year' }[days];
+  const hbar = (rows, key, nameOf) => {
+    const max = Math.max(1, ...rows.map((r) => r[key]));
+    return rows.length ? `<ul class="hbars">${rows.map((r) => `<li><span class="hb-name">${nameOf(r)}</span><span class="hb-track"><i style="width:${Math.max(2, r[key] / max * 100)}%"></i></span><b>${n0(r[key])}</b></li>`).join('')}</ul>` : '<p class="muted">No data yet.</p>';
+  };
+  const totalDev = st.devices.reduce((a, d) => a + d.visits, 0) || 1;
+  const DEV = { phone: '📱 Phone', computer: '💻 Computer', tablet: '📱 Tablet' };
+  main.innerHTML = head + `
+  <nav class="tabs" aria-label="Period">${[[7, '7 days'], [30, '30 days'], [90, '3 months'], [365, '1 year']].map(([d, l]) => `<a href="#/stats/${d}"${d === days ? ' aria-current="page"' : ''}>${l}</a>`).join('')}</nav>
+  <section class="panel visitors">
+    <div class="vtiles">
+      <div><b>${n0(t.today_visits)}</b><span>visits today</span></div>
+      <div><b>${n0(t.period_visits)}</b><span>visits, ${label}${change !== null ? ` <em class="${change >= 0 ? 'up' : 'down'}">${change >= 0 ? '▲' : '▼'} ${Math.abs(change)}%</em>` : ''}</span></div>
+      <div><b>${n0(t.period_views)}</b><span>pages viewed, ${label}</span></div>
+      <div><b>${n0(t.all_visits)}</b><span>visits in total${t.since ? ` (since ${fmtDate(t.since)})` : ''}</span></div>
+    </div>
+    ${t.all_views ? dailyChart(st.daily, days > 90 ? 160 : 200) : '<p class="muted">No visitors counted yet — the counter starts as soon as this update is online.</p>'}
+    <p class="muted small">A <b>visit</b> = someone opening the website (reading several pages counts as one visit). <b>Pages viewed</b> = every page that was opened. Tap or hover over a bar for the numbers of that day.</p>
+  </section>
+  <div class="cols">
+    <section class="panel"><h2>Most viewed pages</h2>${hbar(st.pages, 'views', (r) => `<a href="${e(r.path)}" target="_blank" rel="noopener">${e(names[r.path] || r.path)}</a>`)}</section>
+    <section class="panel"><h2>Where visitors come from</h2>${hbar(st.sources, 'visits', (r) => e((SRC[r.source] || ['🌐', r.source]).join(' ')))}
+      <h2 class="mt">Phone or computer</h2>
+      ${st.devices.length ? `<div class="vdev">${st.devices.map((d) => `<div><b>${Math.round(d.visits / totalDev * 100)}%</b><span>${e(DEV[d.device] || d.device)}</span></div>`).join('')}</div>` : '<p class="muted">No data yet.</p>'}
+    </section>
+  </div>
+  <p class="muted small">Plays on Spotify, YouTube or Apple are not in here — see Spotify for Creators and YouTube Studio for those. Searches in Google: see Google Search Console.</p>`;
+  bindChartTips(main);
 }
 
 /* =========================================================

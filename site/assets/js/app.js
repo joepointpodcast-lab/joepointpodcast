@@ -9,6 +9,7 @@ import { normTags, tagPath, canonical, plain, ldSeries, ldEpisode, ldPerson, ldA
 const $main = document.getElementById('main');
 let S = {};          // settings
 let CATS = [];       // categories
+let NOT_FOUND = false;
 let IS_ADMIN = false; // logged in as admin? → show shortcut bar
 let ACTIONS = [];     // shortcuts for the current page (only shown to the admin)
 const act = (...list) => { ACTIONS = list; };
@@ -73,14 +74,17 @@ async function route() {
   }
   const q = new URLSearchParams(location.search);
   ACTIONS = [];
+  NOT_FOUND = false;
   setNav(path);
   closeMenu();
   for (const [re, fn] of routes) {
     const m = path.match(re);
     if (m) {
+      let ok = true;
       try { await fn(m[1], q); }
-      catch (err) { console.error(err); render('Something went wrong', `<section class="section"><div class="wrap narrow center"><h1>Oops</h1><p class="lead">Something went wrong while loading. Please try again.</p></div></section>`); }
+      catch (err) { ok = false; console.error(err); render('Something went wrong', `<section class="section"><div class="wrap narrow center"><h1>Oops</h1><p class="lead">Something went wrong while loading. Please try again.</p></div></section>`); }
       afterRender();
+      if (ok && !NOT_FOUND) trackView();
       return;
     }
   }
@@ -188,6 +192,7 @@ function afterRender() {
 }
 
 function notFound() {
+  NOT_FOUND = true;
   render('Page not found', `<section class="section"><div class="wrap narrow center">
     <p class="eyebrow">404</p><h1>This page doesn't exist (anymore)</h1>
     <p class="lead">The link may have changed. Try the episodes or head back home.</p>
@@ -292,6 +297,46 @@ async function renderAdminBar() {
   ]);
   const badge = (sel, n) => { const a = bar.querySelector(`[data-c="${sel}"]`); if (a && n) a.insertAdjacentHTML('beforeend', ` <b>${n}</b>`); };
   badge('inbox', unread); badge('stories', pending);
+  // how many times this page was viewed
+  if (NOT_FOUND) return;
+  const { data: v } = await sb.rpc('page_view_count', { p_path: location.pathname.replace(/\/+$/, '') || '/' });
+  if (v) bar.querySelector('.ab-right').insertAdjacentHTML('afterbegin',
+    `<a class="ab-btn ab-views" href="/admin/#/stats" title="${v.week} in the last 7 days">👁 ${Number(v.total).toLocaleString('en')} ${v.total === 1 ? 'view' : 'views'}</a>`);
+}
+
+/* =========================================================
+   Visitor counter — no cookies, no names, no IP addresses.
+   Counts: which page, where the visit came from (Facebook, Google…), phone or computer.
+   Not counted: Lamin himself (logged in), search engines and other robots.
+   ========================================================= */
+const SOURCES = [
+  [/(^|\.)(facebook\.com|fb\.me|fb\.com|messenger\.com)$/, 'facebook'], [/(^|\.)instagram\.com$/, 'instagram'],
+  [/(^|\.)(whatsapp\.com|wa\.me)$/, 'whatsapp'], [/(^|\.)google\./, 'google'], [/(^|\.)(bing\.com|duckduckgo\.com|yahoo\.com|ecosia\.org)$/, 'other search'],
+  [/(^|\.)(youtube\.com|youtu\.be)$/, 'youtube'], [/(^|\.)tiktok\.com$/, 'tiktok'], [/(^|\.)(t\.co|x\.com|twitter\.com)$/, 'x'],
+  [/(^|\.)(linkedin\.com|lnkd\.in)$/, 'linkedin'], [/(^|\.)spotify\.com$/, 'spotify'], [/(^|\.)(podcasts\.apple\.com|apple\.com)$/, 'apple podcasts'],
+];
+function visitSource() {
+  const utm = new URLSearchParams(location.search).get('utm_source');
+  if (utm) return utm.toLowerCase().slice(0, 40);
+  let host = '';
+  try { host = new URL(document.referrer).hostname.replace(/^www\./, ''); } catch { return 'direct'; }
+  if (!host || host === location.hostname) return 'direct';
+  if (/android-app:|com\.facebook/.test(document.referrer)) return 'facebook';
+  const hit = SOURCES.find(([re]) => re.test(host));
+  return hit ? hit[1] : host.slice(0, 40);
+}
+function trackView() {
+  try {
+    if (IS_ADMIN || navigator.webdriver || /bot|crawl|spider|slurp|preview|lighthouse|headless|facebookexternalhit/i.test(navigator.userAgent)) return;
+    const path = location.pathname.replace(/\/+$/, '') || '/';
+    if (trackView.last === path) return;   // same page again (e.g. back button within a second)
+    trackView.last = path;
+    let isNew = true;
+    try { isNew = !sessionStorage.getItem('jp-visit'); sessionStorage.setItem('jp-visit', '1'); } catch { /* private mode: count as new */ }
+    const coarse = matchMedia('(pointer: coarse)').matches;
+    const device = coarse ? (Math.min(screen.width, screen.height) >= 600 ? 'tablet' : 'phone') : 'computer';
+    sb.rpc('track_view', { p_path: path, p_source: isNew ? visitSource() : 'internal', p_device: device, p_new: isNew }).then(() => {}, () => {});
+  } catch { /* never break the site for statistics */ }
 }
 
 /* =========================================================
@@ -619,7 +664,7 @@ async function viewEpisode(slug) {
 function shareBox(label, title, text = '') {
   const url = location.origin + location.pathname;
   const fb = 'https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(url);
-  const wa = 'https://wa.me/?text=' + encodeURIComponent(title + ' — ' + url);
+  const wa = 'https://wa.me/?text=' + encodeURIComponent(title + ' — ' + url + '?utm_source=whatsapp');   // WhatsApp sends no referrer: this lets the visitor counter see it
   return `<div class="share">${label ? `<span>${e(label)}</span>` : ''}
     <a class="btn btn-sm share-fb" target="_blank" rel="noopener" href="${e(fb)}" data-caption="${e(caption(title, text))}">${icon('facebook')} Facebook</a>
     <a class="btn btn-ghost btn-sm" target="_blank" rel="noopener" href="${e(wa)}">${icon('whatsapp')} WhatsApp</a>

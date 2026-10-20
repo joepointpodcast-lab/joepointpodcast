@@ -108,6 +108,15 @@ Geen SQL nodig: alleen de bestanden uploaden in GitHub en op **Commit changes** 
 3. Plak de tag in het beheer bij **Settings → Google** en klik **Save**. Klik daarna in Google op **Verify**.
 4. In Search Console → **Sitemaps**: vul `sitemap.xml` in en klik **Submit**.
 
+## Update: bezoekersteller
+
+**Eerst** in Supabase → **SQL Editor** de inhoud van `supabase/update-stats.sql` plakken en op **Run** klikken (of in één keer `supabase/update-seo-and-stats.sql` als de SEO-update nog niet gedaan is), **daarna** de bestanden in GitHub uploaden en committen.
+
+- **Overview** in het beheer: bezoeken vandaag, 7 dagen, 30 dagen + grafiekje. **Visitors** (nieuw menu-item): alle cijfers per periode, meest bekeken pagina's, waar bezoekers vandaan komen (Facebook, Google, WhatsApp…) en telefoon/computer.
+- In de gouden balk op elke pagina: "👁 87 views".
+- Niet geteld: Lamin zelf (ingelogd), Google en andere robots, niet-bestaande pagina's.
+- Privacy: geen cookies, geen namen, geen IP-adressen → geen cookiebanner nodig. Cijfers ouder dan 2 jaar worden automatisch opgeruimd.
+
 ## Wat Lamin zelf kan (via /admin)
 
 - **Afleveringen**: titel, samenvatting, show notes, link naar Spotify/YouTube/Apple/SoundCloud (de speler verschijnt vanzelf), cover, gasten en categorie. Afleveringen kunnen ook ingepland worden.
