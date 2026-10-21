@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Joe Point Podcast</title>
+<meta name="description" content="Joe Point Podcast — real stories, open conversations. From The Gambia to the world.">
+<meta property="og:title" content="Joe Point Podcast">
+<meta property="og:description" content="Real stories, open conversations. From The Gambia to the world.">
+<meta property="og:type" content="website">
+<link rel="alternate" type="application/rss+xml" title="Joe Point Podcast" href="/feed">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0d0b0a">
+<link rel="icon" href="/assets/icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Joe Point">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="/assets/css/site.css">
+<script>
+  // Apply the last used theme right away (prevents a flash of the default colours)
+  try { var t = JSON.parse(localStorage.getItem('jp-theme') || 'null'); if (t) for (var k in t) document.documentElement.style.setProperty(k, t[k]); } catch (e) {}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="brand" href="/" id="brand"><span class="brand-text">Joe Point<small>Podcast</small></span></a>
+    <button class="menu-btn" aria-expanded="false" aria-controls="menu"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span class="sr">Menu</span></button>
+    <nav id="menu" class="nav" aria-label="Main menu"></nav>
+  </div>
+</header>
+<main id="main"><div class="loading"><div class="spinner" role="status" aria-label="Loading"></div></div></main>
+<footer class="site-footer" id="footer"></footer>
+<div class="toast" id="toast" aria-live="polite"></div>
+<noscript><p style="padding:2rem;text-align:center">Please enable JavaScript to view this site.</p></noscript>
+<script src="/assets/vendor/supabase.js"></script>
+<script type="module" src="/assets/js/app.js"></script>
+<script type="module" src="/assets/js/install.js"></script>
+</body>
+</html>
