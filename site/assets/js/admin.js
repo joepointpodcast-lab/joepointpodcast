@@ -127,6 +127,7 @@ const MENU = [
   ['guests', 'Guests', 'mic', ['guests', 'guest']],
   ['categories', 'Categories', 'link', ['categories']],
   ['posts', 'News & updates', 'quote', ['posts', 'post']],
+  ['books', 'Books', 'book', ['books', 'book']],
   ['stories', 'Community stories', 'pin', ['stories', 'story']],
   ['inbox', 'Inbox', 'mail', ['inbox', 'message']],
   ['settings', 'Settings', 'website', ['settings']],
@@ -135,7 +136,7 @@ const MENU = [
 const VIEWS = {
   dashboard: viewDashboard, episodes: viewEpisodes, episode: viewEpisode, guests: viewGuests, guest: viewGuest,
   categories: viewCategories, posts: viewPosts, post: viewPost, stories: viewStories, story: viewStory,
-  inbox: viewInbox, message: viewMessage, settings: viewSettings, stats: viewStats,
+  inbox: viewInbox, message: viewMessage, settings: viewSettings, stats: viewStats, books: viewBooksAdmin, book: viewBookEdit,
 };
 
 async function route() {
@@ -800,6 +801,171 @@ async function viewPost(id, main) {
     const warn = SEO_MISSING ? SEO_WARN : '';
     if (!failed.length && backToSite((data.status === 'draft' ? 'Saved as draft — not visible on the site yet.' : 'Saved — the post is live on the site.') + warn, isLive(data) ? `/news/${saved.slug}` : '')) return;
     go(`#/post/${saved.id}`, failed.length ? ['error', 'Saved, but not all photos could be uploaded: ' + failed.join(' · ')] : ['ok', data.status === 'draft' ? 'Saved as draft — not visible on the site yet.' : (new Date(data.published_at) > new Date() ? 'Saved — it will go live on the publish date.' : 'Saved — the post is live on the site.') + warn]);
+  });
+}
+
+/* =========================================================
+   Books (whole section can be switched off for visitors)
+   ========================================================= */
+const BOOK_STATUS_ADMIN = { draft: 'Draft (only you)', soon: 'Coming soon', preorder: 'Pre-order', available: 'Out now' };
+const BOOK_NOT_ON = '<div class="panel"><p>The books feature is not installed yet. In Supabase → SQL Editor, run <code>update-books.sql</code> once.</p></div>';
+
+async function viewBooksAdmin(_, main) {
+  const [books, signups] = await Promise.all([
+    sb.from('books').select('id,title,slug,series_no,status,release_date').order('series_no', { ascending: true, nullsFirst: false }),
+    sb.from('book_signups').select('phone,name,created_at,book_id').order('created_at', { ascending: false }),
+  ]);
+  if (books.error) { main.innerHTML = `<header class="page-head"><h1>Books</h1></header>${BOOK_NOT_ON}`; return; }
+  await loadSettings();
+  const on = S.books_enabled === '1';
+  const rows = books.data, subs = signups.data || [];
+  const titleOf = Object.fromEntries(rows.map((b) => [b.id, b.title]));
+  main.innerHTML = `
+  <header class="page-head"><div><h1>Books</h1><p class="muted">The book series: one page per book with a sneak preview, photos and buy links (Amazon, Audible…).</p></div><a class="btn" href="#/book/new">+ New book</a></header>
+  <section class="panel onoff ${on ? 'is-on' : 'is-off'}">
+    <div><h2>${on ? '🟢 The books are visible on the website' : '🔒 The books are hidden'}</h2>
+      <p class="muted">${on ? 'Visitors see "Books" in the menu, on the homepage and on Google.' : 'Nobody can see the books — not in the menu, not on Google, not even with the web address. Only you can preview them (you see a 🔒 Books item in the menu while logged in).'}</p></div>
+    <form id="onoff"><button class="btn ${on ? 'btn-ghost' : ''}" data-confirm="${on ? 'Hide the books for visitors again?' : 'Show the books to everyone? From now on visitors and Google can see them.'}">${on ? 'Hide the books' : 'Show the books on the website'}</button></form>
+  </section>
+  ${rows.length ? `<table class="table"><thead><tr><th>#</th><th>Title</th><th>Status</th><th>Release</th></tr></thead><tbody>
+    ${rows.map((b) => `<tr><td class="num">${b.series_no ?? '–'}</td><td><a class="row-link" href="#/book/${b.id}">${e(b.title)}</a></td><td>${e(BOOK_STATUS_ADMIN[b.status])}</td><td>${b.release_date ? fmtDate(b.release_date) : '–'}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="panel empty">No books yet. <a href="#/book/new">Add the first one.</a></div>'}
+  <div class="cols">
+    <section class="panel"><h2>Texts for the books page</h2><form class="stack" id="texts">
+      ${fText('books_title', 'Title of the books page', S.books_title, { placeholder: 'The books' })}
+      ${fText('books_series', 'Name of the series', S.books_series, { placeholder: "e.g. Lamin's Journey" })}
+      ${fText('books_menu', 'Name in the menu', S.books_menu, { placeholder: 'Books' })}
+      ${fText('book_author', 'Author name', S.book_author, { placeholder: S.host_name || 'Lamin' })}
+      ${fText('books_whatsapp_channel', 'WhatsApp channel (optional)', S.books_whatsapp_channel, { attrs: ' inputmode="url"', placeholder: 'https://whatsapp.com/channel/…', help: 'If you have a WhatsApp channel, visitors can also follow it — without leaving their number.' })}
+      ${fArea('books_intro', 'Introduction to the series', S.books_intro, { rows: 6, md: true, help: 'Shown at the top of the books page; the first paragraph also on the homepage. ' + MD_HELP })}
+      <div><button class="btn">Save texts</button></div></form></section>
+    <section class="panel"><h2>WhatsApp list <small class="muted">(${subs.length})</small></h2>
+      <p class="muted small">People who want a WhatsApp message when a book is out. Only you can see these numbers — never share them.
+        Click 💬 to open a chat with a ready-made message. <b>Tip:</b> a WhatsApp <i>broadcast list</i> only reaches people who saved your number, so a personal message is the safest.</p>
+      ${subs.length ? `<div class="btn-row-admin"><button class="btn btn-ghost btn-sm" type="button" id="copy-nrs">Copy all numbers</button><button class="btn btn-ghost btn-sm" type="button" id="csv">Download (for your contacts)</button></div>
+        <ul class="list wa-list">${subs.slice(0, 100).map((x) => `<li><span><strong>${e(x.name || 'No name')} · ${e(x.phone)}</strong><small>${e(titleOf[x.book_id] || 'All books')} · ${fmtDate(x.created_at)}</small></span>
+          <a class="btn btn-sm wa-btn" target="_blank" rel="noopener" href="https://wa.me/${e(x.phone.slice(1))}?text=${encodeURIComponent(waText(x))}">💬 WhatsApp</a></li>`).join('')}</ul>` : '<p class="muted">Nobody yet.</p>'}
+    </section>
+  </div>`;
+  function waText(x) {
+    const b = rows.find((r) => r.id === x.book_id);
+    const url = location.origin + (b ? '/book/' + b.slug : '/books');
+    return `Hi${x.name ? ' ' + x.name : ''}! ${b ? `"${b.title}"` : 'The book'} by ${S.book_author || S.host_name || 'Lamin'} is out now 🎉 ${url}`;
+  }
+  onSubmit(main.querySelector('#onoff'), async () => {
+    must(await sb.from('settings').upsert({ key: 'books_enabled', value: on ? '0' : '1' }));
+    go('#/books', ['ok', on ? 'The books are hidden again.' : 'The books are now visible on the website. 🎉']);
+  });
+  onSubmit(main.querySelector('#texts'), async (_, fd) => {
+    must(await sb.from('settings').upsert(['books_title', 'books_series', 'books_menu', 'book_author', 'books_intro', 'books_whatsapp_channel']
+      .map((k) => ({ key: k, value: k === 'books_whatsapp_channel' ? validUrl(v(fd, k)) : v(fd, k) }))));
+    go('#/books', ['ok', 'Texts saved.']);
+  });
+  main.querySelector('#copy-nrs')?.addEventListener('click', async (ev) => {
+    await navigator.clipboard.writeText([...new Set(subs.map((x) => x.phone))].join('\n'));
+    ev.target.textContent = 'Copied ✓';
+  });
+  main.querySelector('#csv')?.addEventListener('click', () => {
+    // Columns that Google Contacts / phone contact apps understand
+    const q = (t) => `"${String(t || '').replace(/"/g, "'")}"`;
+    const csv = 'Name,Phone,Notes\n' + subs.map((x) => [q(x.name || x.phone), q(x.phone), q(`Book list: ${titleOf[x.book_id] || 'all books'} (${x.created_at.slice(0, 10)})`)].join(',')).join('\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'whatsapp-book-list.csv'; a.click();
+  });
+}
+
+async function viewBookEdit(id, main) {
+  const isNew = id === 'new' || !id;
+  const [rowRes, imgs, tagList, maxNo] = await Promise.all([
+    isNew ? { data: null } : sb.from('books').select('*').eq('id', id).single(),
+    isNew ? [] : sb.from('book_images').select('*').eq('book_id', id).order('sort').order('id').then(must),
+    allTags(),
+    sb.from('books').select('series_no').order('series_no', { ascending: false, nullsFirst: false }).limit(1),
+  ]);
+  if (rowRes.error || maxNo.error) { main.innerHTML = `<header class="page-head"><h1>Book</h1></header>${BOOK_NOT_ON}`; return; }
+  const row = rowRes.data;
+  const r = row || { status: 'soon', series_no: (maxNo.data?.[0]?.series_no || 0) + 1 };
+  const L = (k, label, ph) => fText(k, label, r[k], { attrs: ' inputmode="url"', placeholder: ph });
+  main.innerHTML = `
+  <header class="page-head"><div><a class="back" href="#/books">← Books</a><h1>${isNew ? 'New book' : 'Edit book'}</h1></div>
+    ${row && row.status !== 'draft' ? `<a class="btn btn-ghost" href="/book/${e(row.slug)}">View on site →</a>` : ''}</header>
+  <form class="edit-grid" id="f">
+    <div class="stack">
+      <section class="panel stack">
+        ${fText('title', 'Title', r.title, { required: true, placeholder: 'e.g. Born by the River' })}
+        ${fText('subtitle', 'Subtitle (optional)', r.subtitle, { placeholder: 'e.g. Growing up in The Gambia' })}
+        ${fArea('blurb', 'Short description (1–3 sentences)', r.blurb, { rows: 3, help: 'Shown on the book cards, in Google and when shared on Facebook/WhatsApp.' })}
+        ${fArea('description', 'About the book', r.description, { rows: 12, md: true, help: 'The longer text on the book page: what is the book about, why did Lamin write it? A good, long text helps Google find the book. ' + MD_HELP })}
+      </section>
+      <section class="panel stack"><h2>Sneak preview</h2>
+        ${fArea('excerpt', 'Excerpt from the book', r.excerpt, { rows: 10, md: true, help: 'A piece of the book to read (for example the first pages). Long texts are shown with a "Read more" button.' })}
+        <div class="field"><span>Audio fragment (audiobook)</span><small>Upload a short MP3 (max 20 MB), for example the first minutes of the audiobook…</small>
+          ${r.sample_audio ? `<audio controls src="${e(media(r.sample_audio))}"></audio><label class="check"><input type="checkbox" name="remove_sample_audio" value="1"> Remove audio</label>` : ''}
+          <input type="file" name="sample_audio" accept="audio/*"></div>
+        ${fText('sample_url', '…or a link to a fragment', r.sample_url, { attrs: ' inputmode="url"', placeholder: 'https://www.youtube.com/… or Spotify / SoundCloud', help: 'YouTube, Spotify and SoundCloud links get a player.' })}
+      </section>
+      <section class="panel stack"><h2>Where to buy</h2><p class="muted small">Paste the links once the book is online. Empty fields are not shown.</p>
+        <div class="row-2">${L('link_kindle', 'Amazon — Kindle e-book', 'https://www.amazon.com/…')}${L('link_paperback', 'Amazon — Paperback', 'https://www.amazon.com/…')}
+        ${L('link_hardcover', 'Hardcover', 'https://…')}${L('link_audiobook', 'Audiobook (Audible, Apple…)', 'https://…')}
+        ${L('link_spotify', 'Spotify (audiobook)', 'https://open.spotify.com/…')}${L('link_other', 'Other shop', 'https://…')}</div>
+        ${fText('link_other_label', 'Button text for the other shop', r.link_other_label, { placeholder: 'e.g. Buy at bol.com' })}
+      </section>
+      <section class="panel stack"><h2>Photos — behind the book</h2><p class="muted small">For example signing the first copies, writing, recording the audiobook, places from the story.</p>
+        ${imgs.length ? `<div class="gallery-admin">${imgs.map((im) => `<div class="g-item"><img src="${e(media(im.file))}" alt=""><input name="cap_${im.id}" value="${e(im.caption)}" placeholder="Caption"><label class="check"><input type="checkbox" name="rm_img" value="${im.id}"> Remove</label></div>`).join('')}</div>` : ''}
+        <label class="field"><span>Add photos</span><small>You can select several photos at once. They are resized automatically.</small><input type="file" name="gallery" accept="image/*" multiple></label>
+      </section>
+      ${seoPanel(r, tagList, 'book › ' + (r.slug || 'new'))}
+    </div>
+    <aside class="stack">
+      <section class="panel stack">
+        ${fSelect('status', 'Status', r.status, BOOK_STATUS_ADMIN, 'Draft = only you. The others are visible as soon as the books are switched on (Admin → Books).')}
+        ${fText('release_date', 'Release date', r.release_date || '', { type: 'date', help: 'Expected or actual date. Shown as month + year.' })}
+        ${fText('series_no', 'Book number in the series', r.series_no, { type: 'number' })}
+      </section>
+      <section class="panel stack">${fImage('cover', 'Cover', r.cover, 'Upright (e.g. 1600×2400). Same image as on Amazon.')}</section>
+      ${row ? `<section class="panel stack">${fText('slug', 'Web address', row.slug, { help: '/book/<b>…</b>' })}</section>` : ''}
+      <div class="actions"><button class="btn" value="save">Save</button>${row ? '<button class="btn btn-danger" value="delete" data-confirm="Delete this book permanently?">Delete</button>' : ''}</div>
+    </aside>
+  </form>`;
+  const bForm = main.querySelector('#f');
+  bindSeo(bForm, () => ({ title: `${bForm.elements.title.value.trim() || 'Book title'} — ${site()}`, desc: bForm.elements.blurb.value || bForm.elements.description.value }));
+  onSubmit(bForm, async (action, fd) => {
+    const form = main.querySelector('#f');
+    if (action === 'delete') {
+      must(await sb.from('books').delete().eq('id', row.id));
+      await trash([row.cover, row.sample_audio, ...imgs.map((i) => i.file)]);
+      if (backToSite('Book deleted.', '/books')) return;
+      return go('#/books', ['ok', 'Book deleted.']);
+    }
+    const audioFile = form.querySelector('input[name=sample_audio]').files[0];
+    if (audioFile && audioFile.size > 20 * 1024 * 1024) throw new Error('The audio file is larger than 20 MB. Use a shorter fragment or a link.');
+    const cover = await fileField(form, 'cover', row?.cover, 'books');
+    const audio = await fileField(form, 'sample_audio', row?.sample_audio, 'books', 'audio');
+    const data = {
+      title: v(fd, 'title'), slug: await uniqueSlug('books', v(fd, 'slug') || v(fd, 'title'), row?.id),
+      subtitle: v(fd, 'subtitle'), blurb: v(fd, 'blurb'), description: v(fd, 'description'), excerpt: String(fd.get('excerpt') ?? '').trim(),
+      sample_url: validUrl(v(fd, 'sample_url')), status: BOOK_STATUS_ADMIN[v(fd, 'status')] ? v(fd, 'status') : 'soon',
+      release_date: v(fd, 'release_date') || null, series_no: v(fd, 'series_no') ? +v(fd, 'series_no') : null,
+      cover: cover.value, sample_audio: audio.value, link_other_label: v(fd, 'link_other_label'), updated_at: new Date().toISOString(),
+      ...seoData(fd),
+    };
+    for (const k of ['link_kindle', 'link_paperback', 'link_hardcover', 'link_audiobook', 'link_spotify', 'link_other']) data[k] = validUrl(v(fd, k));
+    const saved = await saveRow('books', data, row?.id);
+    const rm = fd.getAll('rm_img').map(Number);
+    for (const im of imgs) {
+      if (rm.includes(im.id)) { must(await sb.from('book_images').delete().eq('id', im.id)); await trash([im.file]); }
+      else if (v(fd, 'cap_' + im.id) !== im.caption) must(await sb.from('book_images').update({ caption: v(fd, 'cap_' + im.id) }).eq('id', im.id));
+    }
+    const files = [...form.querySelector('input[name=gallery]').files];
+    let sort = imgs.length ? Math.max(...imgs.map((i) => i.sort)) + 1 : 0;
+    const failed = [];
+    for (const f of files) {
+      try { const path = await upload('media', 'books', await resizeImage(f)); must(await sb.from('book_images').insert({ book_id: saved.id, file: path, sort: sort++ })); }
+      catch (err) { failed.push(`${f.name}: ${errMsg(err)}`); }
+    }
+    await trash([...cover.trash, ...audio.trash]);
+    const msg = data.status === 'draft' ? 'Saved as draft.' : (S.books_enabled === '1' ? 'Saved — the book is on the website.' : 'Saved. (The books are still hidden for visitors.)');
+    if (!failed.length && backToSite(msg, data.status !== 'draft' ? `/book/${saved.slug}` : '/books')) return;
+    go(`#/book/${saved.id}`, failed.length ? ['error', 'Saved, but not all photos could be uploaded: ' + failed.join(' · ')] : ['ok', msg]);
   });
 }
 

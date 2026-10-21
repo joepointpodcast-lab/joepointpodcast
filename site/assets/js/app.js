@@ -4,10 +4,11 @@ import {
   sb, e, md, excerpt, fmtDate, media, episodePlayer, embedHtml, icon, siteSocials, socialsHtml,
   POST_TYPES, applyTheme, resizeImage, upload, errMsg, validUrl,
 } from './lib.js';
-import { normTags, tagPath, canonical, plain, ldSeries, ldEpisode, ldPerson, ldArticle, ldCrumbs } from './seo.js';
+import { normTags, tagPath, canonical, plain, ldSeries, ldEpisode, ldPerson, ldArticle, ldCrumbs, ldBook } from './seo.js';
 
 const $main = document.getElementById('main');
 let S = {};          // settings
+const booksOn = () => S.books_enabled === '1';   // books section switched on in the admin?
 let CATS = [];       // categories
 let NOT_FOUND = false;
 let IS_ADMIN = false; // logged in as admin? → show shortcut bar
@@ -37,6 +38,7 @@ async function boot() {
   // Message from the admin after saving ("Saved — the episode is live")
   try { const m = sessionStorage.getItem('jp-flash'); if (m) { sessionStorage.removeItem('jp-flash'); setTimeout(() => toast('ok', '✓ ' + m), 300); } } catch { /* no storage */ }
   await checkAdmin();
+  if (IS_ADMIN && !booksOn()) renderChrome();   // admin can preview the (hidden) books section
   route();
 }
 
@@ -58,6 +60,8 @@ const routes = [
   [/^\/get-involved\/?$/, viewParticipate],
   [/^\/contact\/?$/, viewContact],
   [/^\/tag\/([^/]+)\/?$/, viewTag],
+  [/^\/books\/?$/, viewBooks],
+  [/^\/book\/([^/]+)\/?$/, viewBook],
 ];
 
 // Old Dutch addresses keep working (links that were already shared)
@@ -210,7 +214,7 @@ function toast(type, msg) {
 /* =========================================================
    Header & footer
    ========================================================= */
-const MENU = () => [['episodes', 'Episodes'], ['guests', 'Guests'], ['about', 'About ' + (S.host_name || 'Lamin')], ['news', 'News'], ['community', 'Community'], ['get-involved', 'Get involved'], ['contact', 'Contact']];
+const MENU = () => [['episodes', 'Episodes'], ['guests', 'Guests'], ...(booksOn() ? [['books', S.books_menu || 'Books']] : IS_ADMIN ? [['books', '🔒 Books']] : []), ['about', 'About ' + (S.host_name || 'Lamin')], ['news', 'News'], ['community', 'Community'], ['get-involved', 'Get involved'], ['contact', 'Contact']];
 
 function renderChrome() {
   const brand = document.getElementById('brand');
@@ -253,7 +257,7 @@ function creditHtml() {
 function closeMenu() { document.getElementById('menu')?.classList.remove('open'); }
 function setNav(path) {
   const first = path.split('/')[1] || '';
-  const map = { episode: 'episodes', guest: 'guests' };
+  const map = { episode: 'episodes', guest: 'guests', book: 'books' };
   document.querySelectorAll('[data-nav]').forEach((a) => {
     if (a.dataset.nav === (map[first] || first)) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
@@ -282,26 +286,36 @@ async function renderAdminBar() {
   }
   // ?return=… → after saving, the admin brings Lamin straight back to this page
   const here = encodeURIComponent(location.pathname + location.search);
-  const link = (label, hash, cls = '', back = true) => `<a class="ab-btn ${cls}" href="/admin/${hash}${back ? (hash.includes('?') ? '&' : '?') + 'return=' + here : ''}">${e(label)}</a>`;
+  const link = (label, hash, cls = '', back = true, title = '') => `<a class="ab-btn ${cls}" href="/admin/${hash}${back ? (hash.includes('?') ? '&' : '?') + 'return=' + here : ''}"${title ? ` title="${e(title)}"` : ''}>${label}</a>`;
+  const action = ([l, h, cap], cls = '') => (/^https?:/.test(h)
+    ? `<a class="ab-btn ab-fb ${cls}" href="${e(h)}" target="_blank" rel="noopener" data-caption="${e(cap || '')}">${e(l)}</a>`
+    : link(e(l), h, cls));
+  // Only the 2 most important buttons in the bar (1 on a phone); the rest under "More"
+  const [first, second, ...rest] = ACTIONS;
+  const more = [...(second ? [[second, 'ab-mobile-only']] : []), ...rest.map((a) => [a, ''])];
   bar.innerHTML = `<div class="wrap ab-inner">
     <span class="ab-label" title="Only you can see this bar">🔑 Admin</span>
-    <div class="ab-actions">${ACTIONS.map(([l, h, cap], i) => (/^https?:/.test(h)
-      ? `<a class="ab-btn ab-fb" href="${e(h)}" target="_blank" rel="noopener" data-caption="${e(cap || '')}">${e(l)}</a>`
-      : link(l, h, i === 0 ? 'ab-main' : ''))).join('')}</div>
-    <div class="ab-right">${link('📥 Inbox', '#/inbox', 'ab-count" data-c="inbox')}${link('📝 Stories', '#/stories/pending', 'ab-count" data-c="stories')}${link('🏠 Dashboard', '#/', '', false)}</div>
+    <div class="ab-actions">${first ? action(first, 'ab-main') : ''}${second ? action(second, 'ab-desktop-only') : ''}
+      <details class="ab-more${rest.length ? '' : ' ab-mobile-only'}"><summary class="ab-btn">More ▾</summary><div class="ab-menu">${more.map(([a, c]) => action(a, c)).join('')}
+        ${link('📥 Inbox', '#/inbox', 'ab-mobile-only" data-c="inbox')}${link('📝 Stories to review', '#/stories/pending', 'ab-mobile-only" data-c="stories')}${link('🏠 Dashboard', '#/', 'ab-mobile-only', false)}</div></details></div>
+    <div class="ab-right">${link('📥<span class="ab-txt"> Inbox</span>', '#/inbox', 'ab-count" data-c="inbox', true, 'Inbox')}${link('📝<span class="ab-txt"> Stories</span>', '#/stories/pending', 'ab-count" data-c="stories', true, 'Stories to review')}${link('🏠<span class="ab-txt"> Dashboard</span>', '#/', 'ab-home', false, 'Dashboard')}</div>
   </div>`;
+  if (!renderAdminBar.bound) {   // close "More" when clicking elsewhere
+    renderAdminBar.bound = true;
+    document.addEventListener('click', (ev) => { const d = document.querySelector('#adminbar .ab-more[open]'); if (d && !d.contains(ev.target)) d.open = false; });
+  }
   // live counters
   const [{ count: unread }, { count: pending }] = await Promise.all([
     sb.from('submissions').select('id', { count: 'exact', head: true }).eq('is_read', false),
     sb.from('stories').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
   ]);
-  const badge = (sel, n) => { const a = bar.querySelector(`[data-c="${sel}"]`); if (a && n) a.insertAdjacentHTML('beforeend', ` <b>${n}</b>`); };
+  const badge = (sel, n) => { if (n) bar.querySelectorAll(`[data-c="${sel}"]`).forEach((a) => a.insertAdjacentHTML('beforeend', ` <b>${n}</b>`)); };
   badge('inbox', unread); badge('stories', pending);
   // how many times this page was viewed
   if (NOT_FOUND) return;
   const { data: v } = await sb.rpc('page_view_count', { p_path: location.pathname.replace(/\/+$/, '') || '/' });
   if (v) bar.querySelector('.ab-right').insertAdjacentHTML('afterbegin',
-    `<a class="ab-btn ab-views" href="/admin/#/stats" title="${v.week} in the last 7 days">👁 ${Number(v.total).toLocaleString('en')} ${v.total === 1 ? 'view' : 'views'}</a>`);
+    `<a class="ab-btn ab-views" href="/admin/#/stats" title="Views of this page (${v.week} in the last 7 days)">👁 ${Number(v.total).toLocaleString('en')}<span class="ab-txt"> ${v.total === 1 ? 'view' : 'views'}</span></a>`);
 }
 
 /* =========================================================
@@ -423,6 +437,12 @@ async function viewHome() {
   const hero = S.hero_image || S.host_photo;
   const platforms = Object.fromEntries(Object.entries(siteSocials(S)).filter(([k]) => ['spotify', 'apple', 'youtube'].includes(k)));
   const firstGuests = first ? await guestsOf(first.id) : [];
+  const books = booksOn() || IS_ADMIN ? await loadBooks() : [];
+  const booksHome = books.length ? `<section class="section books-home"><div class="wrap">
+    ${hiddenNote()}
+    <div class="section-head"><h2>${e(S.books_title || 'The books')}</h2><a class="link-arrow" href="/books">All books ${icon('arrow')}</a></div>
+    ${S.books_intro ? `<div class="lead books-lead">${md(excerptMd(S.books_intro))}</div>` : ''}
+    <div class="grid grid-4 book-grid">${books.slice(0, 4).map(bookCard).join('')}</div></div></section>` : '';
   act(['✏️ Edit homepage text & photo', '#/settings/general'], ['🎨 Colours & logo', '#/settings/style'], ['🔗 Social media links', '#/settings/social'], ['➕ New episode', '#/episode/new'], ['➕ News post', '#/post/new']);
 
   render('', `
@@ -476,6 +496,7 @@ async function viewHome() {
     <p class="center mt"><a class="btn" href="/community/share">Share your story</a></p>
   </div></section>
 
+  ${booksHome}
   ${news.data.length ? `<section class="section"><div class="wrap">
     <div class="section-head"><h2>News & updates</h2><a class="link-arrow" href="/news">See all ${icon('arrow')}</a></div>
     ${grid(news.data, postCard)}</div></section>` : ''}
@@ -505,14 +526,15 @@ async function topTags(limit = 24) {
 async function viewTag(raw) {
   const tag = normTags(raw)[0];
   if (!tag) return notFound();
-  const [eps, gs, ps, all] = await Promise.all([
+  const [eps, gs, ps, all, bks] = await Promise.all([
     publishedEpisodes().contains('tags', [tag]).order('published_at', { ascending: false }).limit(60),
     sb.from('guests').select('*').contains('tags', [tag]).order('name').limit(60),
     publishedPosts().contains('tags', [tag]).order('published_at', { ascending: false }).limit(30),
     topTags(30),
+    booksOn() ? sb.from('books').select('id,title,slug,subtitle,series_no,status,release_date,cover').neq('status', 'draft').contains('tags', [tag]) : { data: [] },
   ]);
-  const E = eps.data || [], G = gs.data || [], P = ps.data || [];
-  const total = E.length + G.length + P.length;
+  const E = eps.data || [], G = gs.data || [], P = ps.data || [], BK = bks.data || [];
+  const total = E.length + G.length + P.length + BK.length;
   const nice = tag.replace(/\b\w/g, (c) => c.toUpperCase());
   const site = S.site_title || 'Joe Point Podcast';
   act(['🎙️ Episodes', '#/episodes'], ['📰 News', '#/posts']);
@@ -522,6 +544,7 @@ async function viewTag(raw) {
   ${E.length ? `<section class="section"><div class="wrap"><h2>Episodes about ${e(nice)}</h2>${grid(E, episodeCard)}</div></section>` : ''}
   ${G.length ? `<section class="section section-alt"><div class="wrap"><h2>Guests</h2>${grid(G, guestCard)}</div></section>` : ''}
   ${P.length ? `<section class="section"><div class="wrap"><h2>News</h2>${grid(P, postCard)}</div></section>` : ''}
+  ${BK.length ? `<section class="section"><div class="wrap"><h2>Books</h2><div class="grid grid-4 book-grid">${BK.map(bookCard).join('')}</div></div></section>` : ''}
   ${!total ? `<section class="section"><div class="wrap narrow center"><div class="empty"><p>Have an idea about this topic?</p><a class="btn btn-ghost" href="/get-involved#topic">Suggest it</a></div></div></section>` : ''}
   ${all.length ? `<section class="section"><div class="wrap">${tagsHtml(all.filter((t) => t !== tag), 'More topics')}</div></section>` : ''}`,
   '', {
@@ -529,6 +552,120 @@ async function viewTag(raw) {
     description: `Everything about ${nice} on ${site}: ${E.slice(0, 3).map((x) => x.title).join(', ') || 'episodes, guests and news'}.`,
     noindex: !total,
     ld: ldCrumbs(location.origin, [['Topics', '/episodes'], ['#' + tag, tagPath(tag)]]),
+  });
+}
+
+/* =========================================================
+   The books (can be switched off in the admin — then visitors see nothing at all)
+   ========================================================= */
+const BOOK_STATUS = { soon: 'Coming soon', preorder: 'Pre-order now', available: 'Out now' };
+const BOOK_LINKS = [['link_kindle', 'Kindle e-book'], ['link_paperback', 'Paperback'], ['link_hardcover', 'Hardcover'], ['link_audiobook', 'Audiobook'], ['link_spotify', 'Listen on Spotify']];
+const excerptMd = (t) => String(t || '').split(/\n{2,}/)[0];
+
+async function loadBooks() {
+  const { data, error } = await sb.from('books').select('id,title,slug,subtitle,series_no,status,release_date,cover,blurb')
+    .neq('status', 'draft').order('series_no', { ascending: true, nullsFirst: false }).order('release_date', { ascending: true, nullsFirst: false });
+  return error ? [] : data || [];
+}
+/** Admin preview while the section is switched off */
+function hiddenNote() {
+  return booksOn() ? '' : `<div class="hidden-note">🔒 <b>Only you can see this.</b> The books are switched off for visitors. Switch them on in <a href="/admin/#/books">Admin → Books</a> when you're ready.</div>`;
+}
+function bookWhen(b) {
+  if (b.status === 'available') return BOOK_STATUS.available;
+  const d = b.release_date ? new Date(b.release_date + 'T12:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) : '';
+  return BOOK_STATUS[b.status] + (d ? ` · ${b.status === 'preorder' ? 'out ' : 'expected '}${d}` : '');
+}
+function bookCover(b, cls = '') {
+  return b.cover ? `<img class="${cls}" src="${e(media(b.cover))}" alt="Cover of ${e(b.title)}" loading="lazy">`
+    : `<span class="book-cover-ph ${cls}"><small>${b.series_no ? 'Book ' + +b.series_no : 'Book'}</small><b>${e(b.title)}</b></span>`;
+}
+function bookCard(b) {
+  return `<a class="card book-card" href="/book/${e(b.slug)}">
+    <div class="book-cover">${bookCover(b)}</div>
+    <div class="card-body">${b.series_no ? `<small class="eyebrow">Book ${+b.series_no}</small>` : ''}<h3>${e(b.title)}</h3>
+      ${b.subtitle ? `<p class="muted">${e(b.subtitle)}</p>` : ''}<span class="book-status book-${e(b.status)}">${e(bookWhen(b))}</span></div></a>`;
+}
+function bookSignup(b) {
+  const next = b && b.status === 'available';
+  const channel = validUrl(S.books_whatsapp_channel || '');
+  return `<section class="book-signup"><h2>${next ? 'Hear about the next book first' : 'Be the first to know'}</h2>
+    <p class="muted">${next ? 'Leave your WhatsApp number and you will get a message when the next part of the story is out.' : `Leave your WhatsApp number and you will get one WhatsApp message when ${b ? `<b>${e(b.title)}</b>` : 'the book'} is out. Nothing else.`}</p>
+    <form class="signup-form" data-book-signup="${b ? b.id : ''}">${HP}
+      <div class="signup-row">
+        <label><span>First name <small>(optional)</small></span><input id="bs-name" type="text" name="name" placeholder="e.g. Awa" autocomplete="given-name" maxlength="80"></label>
+        <label><span>WhatsApp number <small>(with country code)</small></span><input id="bs-phone" type="tel" name="phone" required placeholder="+31 6 1234 5678" autocomplete="tel" inputmode="tel"></label>
+      </div>
+      <label class="signup-consent"><input type="checkbox" name="consent" value="1" required> Yes, ${e(S.host_name || 'Lamin')} may send me a WhatsApp message about the book. My number is not shared with anyone.</label>
+      <button class="btn">${icon('whatsapp')} Notify me on WhatsApp</button></form>
+    ${channel ? `<p class="signup-alt">Or <a href="${e(channel)}" target="_blank" rel="noopener">${icon('whatsapp')} follow ${e(S.site_title || 'Joe Point')} on WhatsApp</a> — no number needed.</p>` : ''}</section>`;
+}
+/** "+31 (0)6-1234 5678" / "0031 6…" → "+31612345678"; '' when it doesn't look like an international number */
+function cleanPhone(v) {
+  let p = String(v || '').replace(/\(0\)/g, '').replace(/[\s().-]/g, '');
+  if (p.startsWith('00')) p = '+' + p.slice(2);
+  return /^\+[0-9]{8,15}$/.test(p) ? p : '';
+}
+
+async function viewBooks() {
+  if (!booksOn() && !IS_ADMIN) return notFound();
+  const books = await loadBooks();
+  const title = S.books_title || 'The books';
+  act(['➕ New book', '#/book/new'], ['📚 All books & on/off', '#/books']);
+  render(title, `
+  <section class="page-hero"><div class="wrap">${hiddenNote()}<p class="eyebrow">${e(S.books_series || 'The story of ' + (S.host_name || 'Lamin'))}</p><h1>${e(title)}</h1>
+    ${S.books_intro ? `<div class="lead prose">${md(S.books_intro)}</div>` : ''}</div></section>
+  <section class="section"><div class="wrap">
+    ${books.length ? `<ol class="book-series">${books.map((b) => `<li>${bookCard(b)}${b.blurb ? `<p class="book-blurb">${e(b.blurb)}</p>` : ''}</li>`).join('')}</ol>` : '<div class="empty"><p>The first book is on its way.</p></div>'}
+    <div class="narrow">${bookSignup(null)}</div>
+  </div></section>`, S.books_intro, {
+    title: `${title} — ${S.books_series || 'the story of ' + (S.host_name || 'Lamin')} | ${S.site_title || 'Joe Point Podcast'}`,
+    description: S.books_intro,
+    ld: ldCrumbs(location.origin, [[title, '/books']]),
+    noindex: !booksOn(),
+  });
+}
+
+async function viewBook(slug) {
+  if (!booksOn() && !IS_ADMIN) return notFound();
+  const { data: b } = await sb.from('books').select('*').eq('slug', slug).neq('status', 'draft').maybeSingle();
+  if (!b) return notFound();
+  const [{ data: imgs }, all] = await Promise.all([
+    sb.from('book_images').select('*').eq('book_id', b.id).order('sort').order('id'), loadBooks(),
+  ]);
+  const i = all.findIndex((x) => x.id === b.id);
+  const prev = i > 0 ? all[i - 1] : null, next = i >= 0 && i < all.length - 1 ? all[i + 1] : null;
+  const links = BOOK_LINKS.filter(([k]) => b[k]).map(([k, l]) => [b[k], l]);
+  if (b.link_other) links.push([b.link_other, b.link_other_label || 'Buy the book']);
+  const buy = links.length ? `<div class="buy"><span>${b.status === 'preorder' ? 'Pre-order:' : 'Get the book:'}</span>${links.map(([u, l], n) => `<a class="btn${n ? ' btn-ghost' : ''}" href="${e(u)}" target="_blank" rel="noopener">${e(l)}</a>`).join('')}</div>` : '';
+  const player = b.sample_audio ? `<audio controls preload="none" src="${e(media(b.sample_audio))}"></audio>` : (b.sample_url ? embedHtml(b.sample_url) : '');
+  const series = S.books_series || 'the series';
+  act(['✏️ Edit this book', `#/book/${b.id}`], ...(booksOn() ? [['📣 Share on Facebook', fbShareUrl(), caption(b.title, b.blurb || b.description)]] : []), ['📚 All books & on/off', '#/books'], ['➕ New book', '#/book/new']);
+  render(b.title, `
+  <article class="book-page"><section class="page-hero book-hero"><div class="wrap">${hiddenNote()}<div class="book-head">
+    <div class="book-head-cover">${bookCover(b)}</div>
+    <div>
+      <p class="eyebrow"><a href="/books">${b.series_no ? `Book ${+b.series_no} of ${e(series)}` : e(S.books_title || 'The books')}</a></p>
+      <h1>${e(b.title)}</h1>${b.subtitle ? `<p class="book-sub">${e(b.subtitle)}</p>` : ''}
+      <span class="book-status book-${e(b.status)}">${e(bookWhen(b))}</span>
+      ${b.blurb ? `<p class="lead">${e(b.blurb)}</p>` : ''}
+      ${buy}
+      ${booksOn() ? shareBox('Share:', b.title, b.blurb || b.description) : ''}
+    </div></div></div></section>
+  <section class="section"><div class="wrap narrow">
+    ${b.description ? `<div class="prose">${md(b.description)}</div>` : ''}
+    ${player || b.excerpt ? `<section class="sneak"><p class="eyebrow">Sneak preview</p><h2>Listen & read a little</h2>
+      ${player ? `<div class="player-box">${player}</div>` : ''}
+      ${b.excerpt ? `<div class="excerpt prose" data-excerpt>${md(b.excerpt)}</div><button type="button" class="btn btn-ghost btn-sm" data-more-excerpt hidden>Read more of the preview</button>` : ''}
+    </section>` : ''}
+    ${imgs?.length ? `<section class="book-photos"><h2>Behind the book</h2><div class="gallery">${imgs.map((im) => `<figure><a href="${e(media(im.file))}" target="_blank" rel="noopener"><img src="${e(media(im.file))}" alt="${e(im.caption || b.title)}" loading="lazy"></a>${im.caption ? `<figcaption>${e(im.caption)}</figcaption>` : ''}</figure>`).join('')}</div></section>` : ''}
+    ${tagsHtml(b.tags)}
+    ${b.status === 'available' && !next ? bookSignup(b) : b.status !== 'available' ? bookSignup(b) : ''}
+  </div>
+  ${prevNext('/book/', 'book', prev, next, true)}</section></article>`, b.blurb || b.description, {
+    title: b.seo_title, description: b.seo_description,
+    ld: [ldBook({ origin: location.origin, S, b, image: b.cover ? media(b.cover) : '' }), ldCrumbs(location.origin, [[S.books_title || 'The books', '/books'], [b.title, '/book/' + b.slug]])],
+    noindex: !booksOn(),
   });
 }
 
@@ -649,10 +786,7 @@ async function viewEpisode(slug) {
           <a class="btn btn-sm" href="/get-involved#voice">${icon('mic')} Voice message</a></div>
       </aside>
     </div>
-    <div class="wrap prevnext">
-      ${next.data ? `<a href="/episode/${e(next.data.slug)}"><small>← Newer episode</small>${e(next.data.title)}</a>` : '<span></span>'}
-      ${prev.data ? `<a class="right" href="/episode/${e(prev.data.slug)}"><small>Older episode →</small>${e(prev.data.title)}</a>` : ''}
-    </div>
+    ${prevNext('/episode/', 'episode', prev.data, next.data)}
   </section>`, ep.excerpt || ep.shownotes, {
     title: ep.seo_title, description: ep.seo_description,
     ld: [ldEpisode({ origin: location.origin, S, ep, guests, image: img(ep.cover) || img(S.logo), audio: img(ep.audio) }),
@@ -791,9 +925,12 @@ async function viewNews(_, q) {
 async function viewPost(slug) {
   const { data: p } = await publishedPosts().eq('slug', slug).maybeSingle();
   if (!p) return notFound();
-  const [{ data: imgs }, epRes] = await Promise.all([
+  const around = () => sb.from('posts').select('title,slug').eq('status', 'published').lte('published_at', nowIso());
+  const [{ data: imgs }, epRes, prev, next] = await Promise.all([
     sb.from('post_images').select('*').eq('post_id', p.id).order('sort').order('id'),
     p.episode_id ? publishedEpisodes('id,title,slug,number,cover').eq('id', p.episode_id).maybeSingle() : Promise.resolve({ data: null }),
+    around().lt('published_at', p.published_at).order('published_at', { ascending: false }).limit(1).maybeSingle(),
+    around().gt('published_at', p.published_at).order('published_at', { ascending: true }).limit(1).maybeSingle(),
   ]);
   const ep = epRes.data;
   const linkBlock = postLinks(p, ep);
@@ -809,11 +946,20 @@ async function viewPost(slug) {
     ${linkBlock}
     ${tagsHtml(p.tags)}
     ${imgs?.length ? `<div class="gallery">${imgs.map((im) => `<figure><a href="${e(media(im.file))}" target="_blank" rel="noopener"><img src="${e(media(im.file))}" alt="${e(im.caption)}" loading="lazy"></a>${im.caption ? `<figcaption>${e(im.caption)}</figcaption>` : ''}</figure>`).join('')}</div>` : ''}
-    <p class="mt"><a class="link-arrow" href="/news">← Back to news</a></p>
-  </div></section></article>`, p.excerpt || p.body, {
+    <p class="mt"><a class="link-arrow" href="/news">← All news</a></p>
+  </div>${prevNext('/news/', 'post', prev.data, next.data, true)}</section></article>`, p.excerpt || p.body, {
     title: p.seo_title, description: p.seo_description,
     ld: [ldArticle({ origin: location.origin, S, p, image: img(p.image) || img(S.logo) }), ldCrumbs(location.origin, [['News', '/news'], [p.title, '/news/' + p.slug]])],
   });
+}
+
+/** Previous (older) and next (newer) item — each only shown when it exists */
+function prevNext(base, word, prev, next, narrow = false) {
+  if (!prev && !next) return '';
+  return `<nav class="wrap${narrow ? ' narrow' : ''} prevnext" aria-label="More ${e(word)}s">
+    ${prev ? `<a class="pn-prev" href="${e(base + prev.slug)}" rel="prev"><small>← Previous ${e(word)}</small><span>${e(prev.title)}</span></a>` : '<span></span>'}
+    ${next ? `<a class="pn-next" href="${e(base + next.slug)}" rel="next"><small>Next ${e(word)} →</small><span>${e(next.title)}</span></a>` : ''}
+  </nav>`;
 }
 
 /** Buttons under a news post: related episode and/or an external link (Facebook, Instagram, YouTube…) */
@@ -974,6 +1120,32 @@ const OK_MSG = {
 };
 
 function bindForms() {
+  // Book sneak preview: show the first part, "Read more" opens the rest
+  $main.querySelectorAll('[data-excerpt]').forEach((x) => {
+    const btn = x.nextElementSibling;
+    if (x.scrollHeight > 520) { x.classList.add('clamped'); btn.hidden = false; }
+    btn?.addEventListener('click', () => { x.classList.remove('clamped'); btn.hidden = true; });
+  });
+  // "Notify me when the book is out"
+  $main.querySelectorAll('form[data-book-signup]').forEach((f) => {
+    const started = Date.now();
+    f.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const fd = new FormData(f), btn = f.querySelector('button');
+      const done = () => { f.innerHTML = '<p class="signup-ok">✓ Thank you! You will get a WhatsApp message when the book is out.</p>'; };
+      if (Date.now() - started < 2000 || fd.get('website_url')) return done();   // spam
+      const phone = cleanPhone(fd.get('phone'));
+      if (!phone) {
+        return toast('error', /^0/.test(String(fd.get('phone')).trim())
+          ? 'Please add your country code, e.g. +31 6 1234 5678 (Netherlands) or +220 123 4567 (The Gambia).'
+          : 'Please enter your WhatsApp number with country code, e.g. +31 6 1234 5678.');
+      }
+      btn.disabled = true;
+      const { error } = await sb.rpc('book_signup', { p_phone: phone, p_name: String(fd.get('name') || '').trim(), p_book: +f.dataset.bookSignup || null, p_consent: !!fd.get('consent'), p_hp: '' });
+      btn.disabled = false;
+      if (error) toast('error', errMsg(error)); else done();
+    });
+  });
   $main.querySelectorAll('form[data-search]').forEach((f) => f.addEventListener('submit', (ev) => {
     ev.preventDefault();
     const p = new URLSearchParams(new FormData(f));
