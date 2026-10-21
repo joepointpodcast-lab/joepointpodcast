@@ -214,12 +214,35 @@ function fArea(name, label, value, o = {}) {
   return `<label class="field"><span>${e(label)}</span>${o.help ? `<small>${o.help}</small>` : ''}
     <textarea name="${e(name)}" rows="${o.rows || 5}"${o.md ? ' data-md' : ''}${o.required ? ' required' : ''}>${e(value ?? '')}</textarea></label>`;
 }
-function fImage(name, label, current, help = '', src = null) {
+function fImage(name, label, current, help = '', src = null, alt = null) {
   const url = src || (current ? media(current) : '');
   return `<div class="field field-image"><span>${e(label)}</span>${help ? `<small>${help}</small>` : ''}
     <div class="img-row"><div class="img-preview">${url ? `<img src="${e(url)}" alt="">` : '<em>No image</em>'}</div>
     <div class="img-actions"><input type="file" name="${e(name)}" accept="image/*" data-preview>
-    ${current ? `<label class="check"><input type="checkbox" name="remove_${e(name)}" value="1"> Remove</label>` : ''}</div></div></div>`;
+    ${current ? `<label class="check"><input type="checkbox" name="remove_${e(name)}" value="1"> Remove</label>` : ''}</div></div>
+    ${alt ? `<label class="field alt-field"><span>Image description (alt text)</span><small>Describe what is in the picture, e.g. <i>Lamin signing the first copy of his book in Amsterdam</i>. Google reads this; blind visitors hear it. Empty = the title is used.</small>
+      <input name="${e(alt.name)}" value="${e(alt.value || '')}" maxlength="200"></label>` : ''}
+    <small class="file-note">The file gets a readable name from the title automatically (good for Google Images).</small></div>`;
+}
+/** Photo gallery item in the admin: caption (visible) + alt text (for Google) */
+const galleryItem = (im) => `<div class="g-item"><img src="${e(media(im.file))}" alt="">
+  <input name="cap_${im.id}" value="${e(im.caption)}" placeholder="Caption (visible)">
+  <input name="alt_${im.id}" value="${e(im.alt || '')}" placeholder="Alt text (for Google)">
+  <label class="check"><input type="checkbox" name="rm_img" value="${im.id}"> Remove</label></div>`;
+/** Save changed captions / alt texts, remove ticked photos */
+async function saveGallery(table, imgs, fd) {
+  const rm = fd.getAll('rm_img').map(Number);
+  for (const im of imgs) {
+    if (rm.includes(im.id)) { must(await sb.from(table).delete().eq('id', im.id)); await trash([im.file]); continue; }
+    const upd = {};
+    if (v(fd, 'cap_' + im.id) !== im.caption) upd.caption = v(fd, 'cap_' + im.id);
+    if (fd.has('alt_' + im.id) && v(fd, 'alt_' + im.id) !== (im.alt || '')) upd.alt = v(fd, 'alt_' + im.id);
+    if (Object.keys(upd).length) {
+      const r = await sb.from(table).update(upd).eq('id', im.id);
+      if (r.error && upd.alt !== undefined && /alt/.test(r.error.message)) { delete upd.alt; if (upd.caption !== undefined) must(await sb.from(table).update(upd).eq('id', im.id)); }
+      else must(r);
+    }
+  }
 }
 function fSelect(name, label, value, options, help = '', attrs = '') {
   return `<label class="field"><span>${e(label)}</span>${help ? `<small>${help}</small>` : ''}<select name="${e(name)}"${attrs}>
@@ -227,11 +250,11 @@ function fSelect(name, label, value, options, help = '', attrs = '') {
 }
 
 /** Handle a file field: upload a new file, or mark for removal. Returns {value, trash[]} */
-async function fileField(form, name, current, folder, kind = 'image') {
+async function fileField(form, name, current, folder, kind = 'image', fileName = '') {
   const file = form.querySelector(`input[type=file][name="${name}"]`)?.files[0];
   if (file) {
     const prepared = kind === 'image' ? await resizeImage(file, folder === 'site' ? 2000 : 1800) : file;
-    const path = await upload('media', folder, prepared);
+    const path = await upload('media', folder, prepared, fileName);
     return { value: path, trash: current ? [current] : [] };
   }
   if (form.querySelector(`[name="remove_${name}"]`)?.checked) return { value: null, trash: current ? [current] : [] };
@@ -280,7 +303,7 @@ const v = (fd, k) => String(fd.get(k) ?? '').trim();
 
 /* ---------- Google & topics (tags) ---------- */
 let SEO_MISSING = false;   // true when update-seo.sql has not been run yet
-const SEO_WARN = ' (Topics and Google text were NOT saved: run update-seo.sql in Supabase first.)';
+const SEO_WARN = ' (Some new fields — topics, Google text, alt text or focus keyphrase — were NOT saved: run the latest update script in Supabase first.)';
 
 /** All topics used so far (for the suggestions). Empty when the database has no tags yet. */
 async function allTags() {
@@ -293,6 +316,10 @@ async function allTags() {
 /** Panel with topics + optional own Google title/description + a Google preview */
 function seoPanel(r, tags, path) {
   return `<section class="panel stack seo-panel"><h2>Topics & Google</h2>
+    <label class="field"><span>Focus keyphrase</span>
+      <small>The search words this page should be found on, e.g. <i>growing up in The Gambia</i>. The checklist below shows where to use them.</small>
+      <input name="focus_keyphrase" value="${e(r.focus_keyphrase || '')}" maxlength="80" placeholder="e.g. growing up in The Gambia" autocomplete="off"></label>
+    <ul class="kp-check" aria-live="polite"></ul>
     <label class="field"><span>Topics (tags)</span>
       <small>Separate with commas, e.g. <i>Gambia, business, family</i>. Every topic gets its own page that Google can find, and visitors can click it. Tip: 3–6 topics per item.</small>
       <input name="tags" value="${e((r.tags || []).join(', '))}" placeholder="gambia, business, family" autocomplete="off"></label>
@@ -306,8 +333,32 @@ function seoPanel(r, tags, path) {
     <div class="g-preview" aria-hidden="true"><small>How it can look in Google:</small><cite>${e(location.host)} › ${e(path)}</cite><b data-g="title"></b><p data-g="desc"></p></div>
   </section>`;
 }
-/** Live counters + Google preview. auto() returns {title, desc} that the site would use itself. */
-function bindSeo(form, auto) {
+/** Live counters + Google preview + focus keyphrase checklist.
+ *  auto() returns {title, desc} that the site would use itself; chk = { title, body: [fields], alt } */
+function bindSeo(form, auto, chk = {}) {
+  const val = (n) => (form.elements[n]?.value || '').trim();
+  const has = (text, kp) => text.toLowerCase().replace(/\s+/g, ' ').includes(kp);
+  const check = () => {
+    const box = form.querySelector('.kp-check');
+    const kp = val('focus_keyphrase').toLowerCase().replace(/\s+/g, ' ');
+    if (!box) return;
+    if (!kp) { box.innerHTML = '<li class="kp-none">Fill in a focus keyphrase to see the checklist.</li>'; return; }
+    const a = auto();
+    const body = (chk.body || []).map(val).join('\n\n');
+    const first = body.split(/\n{2,}/).find((p) => p && !/^#/.test(p)) || '';
+    const words = body.split(/\s+/).filter(Boolean).length;
+    const items = [
+      [has(val('seo_title') || val(chk.title || 'title'), kp), 'In the title (or the Google title)'],
+      [has(val('seo_description') || a.desc || '', kp), 'In the Google description (or the short summary)'],
+      [(val('slug') || slugify(val(chk.title || 'title'))).includes(slugify(kp)), 'In the web address (URL slug)'],
+      [has(first, kp), 'In the first paragraph of the text'],
+      ...(chk.alt ? [[has(val(chk.alt), kp), 'In the image description (alt text)']] : []),
+      [words >= (chk.minWords || 300), `Enough text for Google: ${words} of at least ${chk.minWords || 300} words`],
+    ];
+    const n = items.filter(([okk]) => okk).length;
+    box.innerHTML = `<li class="kp-score">${n} of ${items.length} done${n === items.length ? ' — great! 🎉' : ''}</li>` + items.map(([okk, t]) => `<li class="${okk ? 'ok' : 'todo'}">${okk ? '✅' : '⚪'} ${e(t)}</li>`).join('');
+  };
+  form.addEventListener('input', check); form.addEventListener('change', check); check();
   const upd = () => {
     const t = form.elements.seo_title?.value.trim(), d = form.elements.seo_description?.value.trim();
     const a = auto();
@@ -318,6 +369,8 @@ function bindSeo(form, auto) {
     const title = t || a.title, desc = plain(d || a.desc, 160);
     form.querySelector('[data-g=title]').textContent = title.length > 62 ? title.slice(0, 60) + '…' : title;
     form.querySelector('[data-g=desc]').textContent = desc || '—';
+    const cite = form.querySelector('.g-preview cite');
+    if (cite && form.elements.slug) cite.textContent = cite.textContent.replace(/›[^›]*$/, '› ' + (slugify(form.elements.slug.value || '') || 'new'));
   };
   form.addEventListener('input', upd); upd();
   form.querySelectorAll('[data-addtag]').forEach((b) => b.addEventListener('click', () => {
@@ -326,16 +379,32 @@ function bindSeo(form, auto) {
     dirty = true; b.disabled = true;
   }));
 }
-const seoData = (fd) => ({ tags: normTags(v(fd, 'tags')), seo_title: v(fd, 'seo_title'), seo_description: v(fd, 'seo_description') });
+const seoData = (fd) => ({ tags: normTags(v(fd, 'tags')), seo_title: v(fd, 'seo_title'), seo_description: v(fd, 'seo_description'), focus_keyphrase: v(fd, 'focus_keyphrase') });
+/** Web address field — also for new items; fills itself from the title until Lamin types in it */
+function slugField(row, base) {
+  return `<section class="panel stack">${fText('slug', 'Web address (URL slug)', row?.slug || '', { help: `${location.host}/${base}/<b>…</b> — short, with the most important words. Changing it later breaks links that were already shared.`, placeholder: 'made from the title' })}</section>`;
+}
+function bindSlug(form, titleName) {
+  const slug = form.elements.slug, title = form.elements[titleName];
+  if (!slug || !title) return;
+  let auto = !slug.value;
+  slug.addEventListener('input', () => { auto = false; });
+  title.addEventListener('input', () => { if (auto) { slug.value = slugify(title.value); slug.dispatchEvent(new Event('change', { bubbles: true })); } });
+}
 
 /** Insert/update a row; if the database doesn't know tags/seo yet, save without them (and warn). */
 async function saveRow(table, data, id) {
   const run = (d) => (id ? sb.from(table).update(d).eq('id', id) : sb.from(table).insert(d)).select('id,slug').single();
   let res = await run(data);
   SEO_MISSING = false;
-  if (res.error && /tags|seo_/.test(res.error.message || '')) {
-    const d = { ...data }; delete d.tags; delete d.seo_title; delete d.seo_description;
-    res = await run(d); SEO_MISSING = true;
+  const d = { ...data };
+  // Database not updated yet? Leave out the columns it doesn't know and try again (and warn)
+  for (let i = 0; i < 8 && res.error; i++) {
+    const m = (res.error.message || '').match(/'([a-z_]+)' column|column "?([a-z_]+)"? (?:of relation|does not exist)/);
+    const col = m && (m[1] || m[2]);
+    if (!col || !(col in d)) break;
+    delete d[col]; SEO_MISSING = true;
+    res = await run(d);
   }
   return must(res);
 }
@@ -567,17 +636,19 @@ async function viewEpisode(id, main) {
         ${fSelect('category_id', 'Category', r.category_id ?? '', [['', '— none —'], ...cats.map((c) => [c.id, c.name])])}
         <small><a href="#/categories">Manage categories</a></small>
       </section>
-      <section class="panel stack">${fImage('cover', 'Cover image', r.cover, 'Square works best (e.g. 1400×1400).')}</section>
+      <section class="panel stack">${fImage('cover', 'Cover image', r.cover, 'Square works best (e.g. 1400×1400).', null, { name: 'cover_alt', value: r.cover_alt })}</section>
       <section class="panel stack"><div class="field"><span>Guests in this episode</span>
         ${guests.length ? `<div class="checks">${guests.map((g) => `<label class="check"><input type="checkbox" name="guests" value="${g.id}"${sel.includes(g.id) ? ' checked' : ''}> ${e(g.name)}</label>`).join('')}</div>` : '<small>No guests yet.</small>'}
         <small><a href="#/guest/new">+ Add a new guest</a> (save this episode first)</small></div></section>
-      ${row ? `<section class="panel stack">${fText('slug', 'Web address', row.slug, { help: '/episode/<b>…</b>' })}</section>` : ''}
+      ${slugField(row, 'episode')}
       <div class="actions"><button class="btn" value="save">Save</button>${row ? '<button class="btn btn-danger" value="delete" data-confirm="Delete this episode permanently?">Delete</button>' : ''}</div>
     </aside>
   </form>`;
 
   const epForm = main.querySelector('#f');
-  bindSeo(epForm, () => ({ title: `${epForm.elements.title.value.trim() || 'Episode title'} — ${site()}`, desc: epForm.elements.excerpt.value || epForm.elements.shownotes.value }));
+  bindSeo(epForm, () => ({ title: `${epForm.elements.title.value.trim() || 'Episode title'} — ${site()}`, desc: epForm.elements.excerpt.value || epForm.elements.shownotes.value }),
+    { body: ['excerpt', 'shownotes', 'transcript'], alt: 'cover_alt' });
+  bindSlug(epForm, 'title');
   onSubmit(epForm, async (action, fd) => {
     const form = main.querySelector('#f');
     if (action === 'delete') {
@@ -588,8 +659,8 @@ async function viewEpisode(id, main) {
     }
     const audioFile = form.querySelector('input[name=audio]').files[0];
     if (audioFile && audioFile.size > 50 * 1024 * 1024) throw new Error('The audio file is larger than 50 MB. Please use a Spotify or YouTube link instead.');
-    const cover = await fileField(form, 'cover', row?.cover, 'covers');
-    const audio = await fileField(form, 'audio', row?.audio, 'audio', 'audio');
+    const cover = await fileField(form, 'cover', row?.cover, 'covers', 'image', v(fd, 'title') + ' cover');
+    const audio = await fileField(form, 'audio', row?.audio, 'audio', 'audio', v(fd, 'title'));
     const data = {
       title: v(fd, 'title'),
       slug: await uniqueSlug('episodes', v(fd, 'slug') || v(fd, 'title'), row?.id),
@@ -600,7 +671,7 @@ async function viewEpisode(id, main) {
       category_id: v(fd, 'category_id') ? +v(fd, 'category_id') : null,
       status: v(fd, 'status') === 'published' ? 'published' : 'draft',
       published_at: fromLocalInput(v(fd, 'published_at')),
-      cover: cover.value, audio: audio.value, updated_at: new Date().toISOString(), ...seoData(fd),
+      cover: cover.value, audio: audio.value, cover_alt: v(fd, 'cover_alt'), updated_at: new Date().toISOString(), ...seoData(fd),
     };
     const saved = await saveRow('episodes', data, row?.id);
     must(await sb.from('episode_guests').delete().eq('episode_id', saved.id));
@@ -651,15 +722,17 @@ async function viewGuest(id, main) {
         <div class="row-2">${Object.entries(GUEST_SOC).map(([k, l]) => fText(k, l, r[k], { placeholder: 'https://…', attrs: ' inputmode="url"' })).join('')}</div></section>
     </div>
     <aside class="stack">
-      <section class="panel stack">${fImage('photo', 'Photo', r.photo, 'Square, face in the middle.')}</section>
+      <section class="panel stack">${fImage('photo', 'Photo', r.photo, 'Square, face in the middle.', null, { name: 'photo_alt', value: r.photo_alt })}</section>
       <section class="panel stack"><div class="field"><span>Appears in</span>
         ${eps.length ? `<div class="checks">${eps.map((ep) => `<label class="check"><input type="checkbox" name="episodes" value="${ep.id}"${sel.includes(ep.id) ? ' checked' : ''}> ${ep.number ? '#' + ep.number + ' ' : ''}${e(ep.title)}</label>`).join('')}</div>` : '<small>No episodes yet.</small>'}</div></section>
-      ${row ? `<section class="panel stack">${fText('slug', 'Web address', row.slug, { help: '/guest/<b>…</b>' })}</section>` : ''}
+      ${slugField(row, 'guest')}
       <div class="actions"><button class="btn" value="save">Save</button>${row ? '<button class="btn btn-danger" value="delete" data-confirm="Delete this guest?">Delete</button>' : ''}</div>
     </aside>
   </form>`;
   const gForm = main.querySelector('#f');
-  bindSeo(gForm, () => ({ title: `${gForm.elements.name.value.trim() || 'Name'}${gForm.elements.tagline.value.trim() ? ' — ' + gForm.elements.tagline.value.trim() : ''} | ${site()}`, desc: gForm.elements.tagline.value || gForm.elements.bio.value }));
+  bindSeo(gForm, () => ({ title: `${gForm.elements.name.value.trim() || 'Name'}${gForm.elements.tagline.value.trim() ? ' — ' + gForm.elements.tagline.value.trim() : ''} | ${site()}`, desc: gForm.elements.tagline.value || gForm.elements.bio.value }),
+    { title: 'name', body: ['tagline', 'bio'], alt: 'photo_alt', minWords: 150 });
+  bindSlug(gForm, 'name');
   onSubmit(gForm, async (action, fd) => {
     const form = main.querySelector('#f');
     if (action === 'delete') {
@@ -668,8 +741,8 @@ async function viewGuest(id, main) {
       if (backToSite('Guest deleted.', afterDelete(`/guest/${row.slug}`, '/guests'))) return;
       return go('#/guests', ['ok', 'Guest deleted.']);
     }
-    const photo = await fileField(form, 'photo', row?.photo, 'guests');
-    const data = { name: v(fd, 'name'), slug: await uniqueSlug('guests', v(fd, 'slug') || v(fd, 'name'), row?.id), tagline: v(fd, 'tagline'), bio: v(fd, 'bio'), photo: photo.value };
+    const photo = await fileField(form, 'photo', row?.photo, 'guests', 'image', v(fd, 'name'));
+    const data = { name: v(fd, 'name'), slug: await uniqueSlug('guests', v(fd, 'slug') || v(fd, 'name'), row?.id), tagline: v(fd, 'tagline'), bio: v(fd, 'bio'), photo: photo.value, photo_alt: v(fd, 'photo_alt') };
     for (const k of Object.keys(GUEST_SOC)) data[k] = validUrl(v(fd, k));
     Object.assign(data, seoData(fd));
     const saved = await saveRow('guests', data, row?.id);
@@ -751,7 +824,7 @@ async function viewPost(id, main) {
         ${fText('link_label', 'Button text (optional)', r.link_label, { placeholder: 'e.g. See the photos on Facebook' })}
       </section>
       <section class="panel stack"><h2>Photo gallery</h2>
-        ${imgs.length ? `<div class="gallery-admin">${imgs.map((im) => `<div class="g-item"><img src="${e(media(im.file))}" alt=""><input name="cap_${im.id}" value="${e(im.caption)}" placeholder="Caption"><label class="check"><input type="checkbox" name="rm_img" value="${im.id}"> Remove</label></div>`).join('')}</div>` : ''}
+        ${imgs.length ? `<div class="gallery-admin">${imgs.map(galleryItem).join('')}</div>` : ''}
         <label class="field"><span>Add photos</span><small>You can select several photos at once. They are resized automatically.</small><input type="file" name="gallery" accept="image/*" multiple></label>
       </section>
     </div>
@@ -761,13 +834,15 @@ async function viewPost(id, main) {
         ${fSelect('status', 'Status', r.status, { published: 'Live (visible right away)', draft: 'Draft (only you can see it)' })}
         ${fText('published_at', 'Publish date', toLocalInput(r.published_at), { type: 'datetime-local', help: 'Leave as is to publish now. A date in the future = scheduled.' })}
       </section>
-      <section class="panel stack">${fImage('image', 'Main image', r.image)}</section>
-      ${row ? `<section class="panel stack">${fText('slug', 'Web address', row.slug, { help: '/news/<b>…</b>' })}</section>` : ''}
+      <section class="panel stack">${fImage('image', 'Main image', r.image, '', null, { name: 'image_alt', value: r.image_alt })}</section>
+      ${slugField(row, 'news')}
       <div class="actions"><button class="btn" value="save">Save</button>${row ? '<button class="btn btn-danger" value="delete" data-confirm="Delete this post?">Delete</button>' : ''}</div>
     </aside>
   </form>`;
   const pForm = main.querySelector('#f');
-  bindSeo(pForm, () => ({ title: `${pForm.elements.title.value.trim() || 'Post title'} — ${site()}`, desc: pForm.elements.excerpt.value || pForm.elements.body.value }));
+  bindSeo(pForm, () => ({ title: `${pForm.elements.title.value.trim() || 'Post title'} — ${site()}`, desc: pForm.elements.excerpt.value || pForm.elements.body.value }),
+    { body: ['excerpt', 'body'], alt: 'image_alt', minWords: 200 });
+  bindSlug(pForm, 'title');
   onSubmit(pForm, async (action, fd) => {
     const form = main.querySelector('#f');
     if (action === 'delete') {
@@ -776,25 +851,21 @@ async function viewPost(id, main) {
       if (backToSite('Post deleted.', afterDelete(`/news/${row.slug}`, '/news'))) return;
       return go('#/posts', ['ok', 'Post deleted.']);
     }
-    const image = await fileField(form, 'image', row?.image, 'news');
+    const image = await fileField(form, 'image', row?.image, 'news', 'image', v(fd, 'title'));
     const data = {
       title: v(fd, 'title'), slug: await uniqueSlug('posts', v(fd, 'slug') || v(fd, 'title'), row?.id),
       type: POST_TYPES[v(fd, 'type')] ? v(fd, 'type') : 'nieuws', excerpt: v(fd, 'excerpt'), body: v(fd, 'body'),
       status: v(fd, 'status') === 'draft' ? 'draft' : 'published', published_at: fromLocalInput(v(fd, 'published_at')), image: image.value,
       episode_id: v(fd, 'episode_id') ? +v(fd, 'episode_id') : null, link_url: validUrl(v(fd, 'link_url')), link_label: v(fd, 'link_label'),
-      ...seoData(fd),
+      image_alt: v(fd, 'image_alt'), ...seoData(fd),
     };
     const saved = await saveRow('posts', data, row?.id);
-    const rm = fd.getAll('rm_img').map(Number);
-    for (const im of imgs) {
-      if (rm.includes(im.id)) { must(await sb.from('post_images').delete().eq('id', im.id)); await trash([im.file]); }
-      else if (v(fd, 'cap_' + im.id) !== im.caption) must(await sb.from('post_images').update({ caption: v(fd, 'cap_' + im.id) }).eq('id', im.id));
-    }
+    await saveGallery('post_images', imgs, fd);
     const files = [...form.querySelector('input[name=gallery]').files];
     let sort = imgs.length ? Math.max(...imgs.map((i) => i.sort)) + 1 : 0;
     const failed = [];
     for (const f of files) {
-      try { const path = await upload('media', 'news', await resizeImage(f)); must(await sb.from('post_images').insert({ post_id: saved.id, file: path, sort: sort++ })); }
+      try { const path = await upload('media', 'news', await resizeImage(f), v(fd, 'title') + ' photo'); must(await sb.from('post_images').insert({ post_id: saved.id, file: path, sort: sort++ })); }
       catch (err) { failed.push(`${f.name}: ${errMsg(err)}`); }
     }
     await trash(image.trash);
@@ -910,7 +981,7 @@ async function viewBookEdit(id, main) {
         ${fText('link_other_label', 'Button text for the other shop', r.link_other_label, { placeholder: 'e.g. Buy at bol.com' })}
       </section>
       <section class="panel stack"><h2>Photos — behind the book</h2><p class="muted small">For example signing the first copies, writing, recording the audiobook, places from the story.</p>
-        ${imgs.length ? `<div class="gallery-admin">${imgs.map((im) => `<div class="g-item"><img src="${e(media(im.file))}" alt=""><input name="cap_${im.id}" value="${e(im.caption)}" placeholder="Caption"><label class="check"><input type="checkbox" name="rm_img" value="${im.id}"> Remove</label></div>`).join('')}</div>` : ''}
+        ${imgs.length ? `<div class="gallery-admin">${imgs.map(galleryItem).join('')}</div>` : ''}
         <label class="field"><span>Add photos</span><small>You can select several photos at once. They are resized automatically.</small><input type="file" name="gallery" accept="image/*" multiple></label>
       </section>
       ${seoPanel(r, tagList, 'book › ' + (r.slug || 'new'))}
@@ -921,13 +992,15 @@ async function viewBookEdit(id, main) {
         ${fText('release_date', 'Release date', r.release_date || '', { type: 'date', help: 'Expected or actual date. Shown as month + year.' })}
         ${fText('series_no', 'Book number in the series', r.series_no, { type: 'number' })}
       </section>
-      <section class="panel stack">${fImage('cover', 'Cover', r.cover, 'Upright (e.g. 1600×2400). Same image as on Amazon.')}</section>
-      ${row ? `<section class="panel stack">${fText('slug', 'Web address', row.slug, { help: '/book/<b>…</b>' })}</section>` : ''}
+      <section class="panel stack">${fImage('cover', 'Cover', r.cover, 'Upright (e.g. 1600×2400). Same image as on Amazon.', null, { name: 'cover_alt', value: r.cover_alt })}</section>
+      ${slugField(row, 'book')}
       <div class="actions"><button class="btn" value="save">Save</button>${row ? '<button class="btn btn-danger" value="delete" data-confirm="Delete this book permanently?">Delete</button>' : ''}</div>
     </aside>
   </form>`;
   const bForm = main.querySelector('#f');
-  bindSeo(bForm, () => ({ title: `${bForm.elements.title.value.trim() || 'Book title'} — ${site()}`, desc: bForm.elements.blurb.value || bForm.elements.description.value }));
+  bindSeo(bForm, () => ({ title: `${bForm.elements.title.value.trim() || 'Book title'} — ${site()}`, desc: bForm.elements.blurb.value || bForm.elements.description.value }),
+    { body: ['blurb', 'description', 'excerpt'], alt: 'cover_alt' });
+  bindSlug(bForm, 'title');
   onSubmit(bForm, async (action, fd) => {
     const form = main.querySelector('#f');
     if (action === 'delete') {
@@ -938,28 +1011,24 @@ async function viewBookEdit(id, main) {
     }
     const audioFile = form.querySelector('input[name=sample_audio]').files[0];
     if (audioFile && audioFile.size > 20 * 1024 * 1024) throw new Error('The audio file is larger than 20 MB. Use a shorter fragment or a link.');
-    const cover = await fileField(form, 'cover', row?.cover, 'books');
-    const audio = await fileField(form, 'sample_audio', row?.sample_audio, 'books', 'audio');
+    const cover = await fileField(form, 'cover', row?.cover, 'books', 'image', v(fd, 'title') + ' book cover');
+    const audio = await fileField(form, 'sample_audio', row?.sample_audio, 'books', 'audio', v(fd, 'title') + ' preview');
     const data = {
       title: v(fd, 'title'), slug: await uniqueSlug('books', v(fd, 'slug') || v(fd, 'title'), row?.id),
       subtitle: v(fd, 'subtitle'), blurb: v(fd, 'blurb'), description: v(fd, 'description'), excerpt: String(fd.get('excerpt') ?? '').trim(),
       sample_url: validUrl(v(fd, 'sample_url')), status: BOOK_STATUS_ADMIN[v(fd, 'status')] ? v(fd, 'status') : 'soon',
       release_date: v(fd, 'release_date') || null, series_no: v(fd, 'series_no') ? +v(fd, 'series_no') : null,
-      cover: cover.value, sample_audio: audio.value, link_other_label: v(fd, 'link_other_label'), updated_at: new Date().toISOString(),
+      cover: cover.value, cover_alt: v(fd, 'cover_alt'), sample_audio: audio.value, link_other_label: v(fd, 'link_other_label'), updated_at: new Date().toISOString(),
       ...seoData(fd),
     };
     for (const k of ['link_kindle', 'link_paperback', 'link_hardcover', 'link_audiobook', 'link_spotify', 'link_other']) data[k] = validUrl(v(fd, k));
     const saved = await saveRow('books', data, row?.id);
-    const rm = fd.getAll('rm_img').map(Number);
-    for (const im of imgs) {
-      if (rm.includes(im.id)) { must(await sb.from('book_images').delete().eq('id', im.id)); await trash([im.file]); }
-      else if (v(fd, 'cap_' + im.id) !== im.caption) must(await sb.from('book_images').update({ caption: v(fd, 'cap_' + im.id) }).eq('id', im.id));
-    }
+    await saveGallery('book_images', imgs, fd);
     const files = [...form.querySelector('input[name=gallery]').files];
     let sort = imgs.length ? Math.max(...imgs.map((i) => i.sort)) + 1 : 0;
     const failed = [];
     for (const f of files) {
-      try { const path = await upload('media', 'books', await resizeImage(f)); must(await sb.from('book_images').insert({ book_id: saved.id, file: path, sort: sort++ })); }
+      try { const path = await upload('media', 'books', await resizeImage(f), v(fd, 'title') + ' photo'); must(await sb.from('book_images').insert({ book_id: saved.id, file: path, sort: sort++ })); }
       catch (err) { failed.push(`${f.name}: ${errMsg(err)}`); }
     }
     await trash([...cover.trash, ...audio.trash]);
@@ -1254,9 +1323,9 @@ async function viewSettings(tab, main) {
   onSubmit(main.querySelector('#f'), async (_, fd) => {
     const form = main.querySelector('#f');
     const rows = [], trashList = [];
-    for (const [k, [, type, , opts]] of Object.entries(fields)) {
+    for (const [k, [label, type, , opts]] of Object.entries(fields)) {
       let val;
-      if (type === 'image') { const r = await fileField(form, k, S[k], 'site'); val = r.value || ''; trashList.push(...r.trash); }
+      if (type === 'image') { const r = await fileField(form, k, S[k], 'site', 'image', `${S.site_title || 'Joe Point Podcast'} ${label}`); val = r.value || ''; trashList.push(...r.trash); }
       else if (type === 'check') val = fd.get(k) ? '1' : '0';
       else if (type === 'color') { val = v(fd, k).toLowerCase(); if (!/^#[0-9a-f]{6}$/.test(val)) continue; }
       else if (type === 'select') { val = v(fd, k); if (!(val in opts)) continue; }

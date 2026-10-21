@@ -125,6 +125,15 @@ SQL: `supabase/update-books.sql` (of alles in één keer: `supabase/update-seo-s
 - Bovenaan Beheer → Books de **aan/uit-knop**. Zolang die UIT staat, ziet niemand iets: geen menu-item, niets op de homepage, niet in Google, en ook de database geeft niets prijs. Lamin ziet zelf een 🔒 Books-voorbeeld als hij ingelogd is.
 - Bezoekers kunnen hun **WhatsApp-nummer** achterlaten (met landcode en vinkje voor toestemming). De lijst staat in Beheer → Books: per persoon een groene **💬 WhatsApp**-knop met een kant-en-klaar bericht, plus "alle nummers kopiëren" en een download voor je contacten. Optioneel: link naar een WhatsApp-kanaal, dan kunnen mensen ook volgen zonder nummer.
 
+## Update: afbeeldingen en focus keyphrase (SEO)
+
+SQL: `supabase/update-image-seo.sql`. Daarna de bestanden uploaden — **sleep de mappen** `site`, `netlify`, `supabase` (niet de losse bestanden) en commit.
+
+- Bij elke hoofdafbeelding (aflevering, nieuws, gast, boek) een veld **Image description (alt text)**; bij galerijfoto's naast het bijschrift een alt-veld.
+- Geüploade bestanden krijgen automatisch een leesbare naam uit de titel, bijv. `growing-up-in-the-gambia-cover-k3x9q2.jpg`.
+- **Web address (URL slug)** staat nu ook bij nieuwe items en vult zichzelf vanuit de titel.
+- **Focus keyphrase** met een checklist: titel, Google-beschrijving, webadres, eerste alinea, alt-tekst en genoeg tekst.
+
 ## Wat Lamin zelf kan (via /admin)
 
 - **Afleveringen**: titel, samenvatting, show notes, link naar Spotify/YouTube/Apple/SoundCloud (de speler verschijnt vanzelf), cover, gasten en categorie. Afleveringen kunnen ook ingepland worden.

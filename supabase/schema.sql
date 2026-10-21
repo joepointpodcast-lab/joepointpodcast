@@ -543,6 +543,32 @@ end $$;
 grant execute on function public.book_signup(text, text, bigint, boolean, text) to anon, authenticated;
 
 
+-- ---------- Image alt text + focus keyphrase (also added by update-image-seo.sql) ----------
+-- Description of the main image (read by Google and by screen readers for blind visitors)
+alter table public.episodes add column if not exists cover_alt text not null default '';
+alter table public.posts    add column if not exists image_alt text not null default '';
+alter table public.guests   add column if not exists photo_alt text not null default '';
+
+-- Description per gallery photo (the caption is what visitors see; the alt text is for Google)
+alter table public.post_images add column if not exists alt text not null default '';
+
+-- Focus keyphrase: the search words this page should be found on (a writing aid in the admin)
+alter table public.episodes add column if not exists focus_keyphrase text not null default '';
+alter table public.posts    add column if not exists focus_keyphrase text not null default '';
+alter table public.guests   add column if not exists focus_keyphrase text not null default '';
+
+-- Same for the books (only if the books update is installed)
+do $$ begin
+  if to_regclass('public.books') is not null then
+    alter table public.books add column if not exists cover_alt text not null default '';
+    alter table public.books add column if not exists focus_keyphrase text not null default '';
+  end if;
+  if to_regclass('public.book_images') is not null then
+    alter table public.book_images add column if not exists alt text not null default '';
+  end if;
+end $$;
+
+
 -- ---------- Opslag (foto's en audio) ----------
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values

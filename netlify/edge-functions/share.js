@@ -20,7 +20,8 @@ async function q(path) {
   } catch { return null; }
 }
 /** Try with the new columns first; if the database isn't updated yet, without them */
-async function q2(withCols, without) { return (await q(withCols)) ?? (await q(without)); }
+async function q2(...tries) { for (const t of tries) { const r = await q(t); if (r) return r; } return null; }
+const imgTag = (path, alt) => (path ? `<img src="${esc(img(path))}" alt="${esc(alt)}">` : '');
 /** Database not reachable → don't pretend the page is gone (serve the normal page instead) */
 const need = (rows) => { if (!rows) throw new Error('Database not reachable'); return rows; };
 
@@ -62,14 +63,14 @@ export default async (request, context) => {
         <h2>News</h2>${list(posts || [], (x) => `<li><a href="/news/${esc(x.slug)}">${esc(x.title)}</a></li>`)}`;
     } else if (kind === 'episode' && slug) {
       const base = `title,slug,number,excerpt,shownotes,cover,audio,media_url,duration,published_at`;
-      const [ep] = need(await q2(`episodes?select=${base},transcript,tags,seo_title,seo_description&slug=eq.${s}&${PUB}`, `episodes?select=${base}&slug=eq.${s}&${PUB}`));
+      const [ep] = need(await q2(`episodes?select=${base},transcript,tags,seo_title,seo_description,cover_alt&slug=eq.${s}&${PUB}`, `episodes?select=${base},transcript,tags,seo_title,seo_description&slug=eq.${s}&${PUB}`, `episodes?select=${base}&slug=eq.${s}&${PUB}`));
       if (!ep) notFound();
       else {
         const links = (await q(`episodes?select=episode_guests(guests(name,slug,tagline))&slug=eq.${s}`)) || [];
         const guests = (links[0]?.episode_guests || []).map((r) => r.guests).filter(Boolean);
         title = ep.seo_title || `${ep.title} — ${site}`; desc = ep.seo_description || plain(ep.excerpt || ep.shownotes); image = img(ep.cover) || image;
         ld = [ldEpisode({ origin, S, ep, guests, image, audio: img(ep.audio) }), ldCrumbs(origin, [['Episodes', '/episodes'], [ep.title, '/episode/' + ep.slug]])];
-        body = `<article><p><a href="/episodes">Episodes</a></p><h1>${esc(ep.title)}</h1>${ep.number ? `<p>Episode ${+ep.number}${ep.duration ? ' · ' + esc(ep.duration) : ''}</p>` : ''}
+        body = `<article><p><a href="/episodes">Episodes</a></p><h1>${esc(ep.title)}</h1>${imgTag(ep.cover, ep.cover_alt || ep.title)}${ep.number ? `<p>Episode ${+ep.number}${ep.duration ? ' · ' + esc(ep.duration) : ''}</p>` : ''}
           ${ep.excerpt ? `<p>${esc(ep.excerpt)}</p>` : ''}
           ${guests.length ? `<h2>Guests</h2>${list(guests, (g) => `<li><a href="/guest/${esc(g.slug)}">${esc(g.name)}</a>${g.tagline ? ' — ' + esc(g.tagline) : ''}</li>`)}` : ''}
           ${ep.shownotes ? `<h2>Show notes</h2>${mdLite(ep.shownotes)}` : ''}${tagLinks(ep.tags)}
@@ -82,7 +83,7 @@ export default async (request, context) => {
         const eps = (g.episode_guests || []).map((r) => r.episodes).filter((x) => x && x.status === 'published');
         title = g.seo_title || `${g.name}${g.tagline ? ' — ' + g.tagline : ''} | ${site}`; desc = g.seo_description || plain(g.tagline || g.bio); image = img(g.photo) || image;
         ld = [ldPerson({ origin, g, image: img(g.photo) }), ldCrumbs(origin, [['Guests', '/guests'], [g.name, '/guest/' + g.slug]])];
-        body = `<p><a href="/guests">Guests</a></p><h1>${esc(g.name)}</h1>${g.tagline ? `<p>${esc(g.tagline)}</p>` : ''}${mdLite(g.bio)}${tagLinks(g.tags)}
+        body = `<p><a href="/guests">Guests</a></p><h1>${esc(g.name)}</h1>${imgTag(g.photo, g.photo_alt || g.name)}${g.tagline ? `<p>${esc(g.tagline)}</p>` : ''}${mdLite(g.bio)}${tagLinks(g.tags)}
           <h2>Episodes with ${esc(g.name)}</h2>${list(eps, (x) => `<li><a href="/episode/${esc(x.slug)}">${esc(x.title)}</a></li>`)}`;
       }
     } else if (kind === 'news' && slug) {
@@ -91,7 +92,7 @@ export default async (request, context) => {
       else {
         title = p.seo_title || `${p.title} — ${site}`; desc = p.seo_description || plain(p.excerpt || p.body); image = img(p.image) || image;
         ld = [ldArticle({ origin, S, p, image }), ldCrumbs(origin, [['News', '/news'], [p.title, '/news/' + p.slug]])];
-        body = `<article><p><a href="/news">News</a></p><h1>${esc(p.title)}</h1>${p.excerpt ? `<p>${esc(p.excerpt)}</p>` : ''}${mdLite(p.body)}${tagLinks(p.tags)}</article>`;
+        body = `<article><p><a href="/news">News</a></p><h1>${esc(p.title)}</h1>${imgTag(p.image, p.image_alt || p.title)}${p.excerpt ? `<p>${esc(p.excerpt)}</p>` : ''}${mdLite(p.body)}${tagLinks(p.tags)}</article>`;
       }
     } else if (kind === 'tag' && slug) {
       const tag = normTags(slug)[0] || '';
@@ -139,7 +140,7 @@ export default async (request, context) => {
       else {
         title = b.seo_title || `${b.title}${b.subtitle ? ' — ' + b.subtitle : ''} | ${site}`; desc = b.seo_description || plain(b.blurb || b.description); image = img(b.cover) || image;
         ld = [ldBook({ origin, S, b, image: img(b.cover) }), ldCrumbs(origin, [[S.books_title || 'The books', '/books'], [b.title, '/book/' + b.slug]])];
-        body = `<article><p><a href="/books">${esc(S.books_title || 'The books')}</a></p><h1>${esc(b.title)}</h1>${b.subtitle ? `<p>${esc(b.subtitle)}</p>` : ''}
+        body = `<article><p><a href="/books">${esc(S.books_title || 'The books')}</a></p><h1>${esc(b.title)}</h1>${imgTag(b.cover, b.cover_alt || 'Cover of ' + b.title)}${b.subtitle ? `<p>${esc(b.subtitle)}</p>` : ''}
           ${b.blurb ? `<p>${esc(b.blurb)}</p>` : ''}${mdLite(b.description)}${b.excerpt ? `<h2>Sneak preview</h2>${mdLite(b.excerpt)}` : ''}${tagLinks(b.tags)}</article>`;
       }
     } else if (kind === 'about') {

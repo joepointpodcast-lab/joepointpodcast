@@ -10,7 +10,7 @@ export const e = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp
 
 export function slugify(s) {
   const out = String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/&/g, ' en ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+    .replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
   return out || 'item';
 }
 
@@ -120,8 +120,11 @@ export function extOf(file) {
 }
 
 /** Upload to a bucket; returns the path */
-export async function upload(bucket, folder, file) {
-  const path = `${folder}/${crypto.randomUUID()}.${extOf(file)}`;
+/** Upload a file. With a name, the file gets a readable address (good for Google Images), e.g. covers/born-by-the-river-cover-k3x9q2.jpg */
+export async function upload(bucket, folder, file, name = '') {
+  const nice = name ? slugify(name).slice(0, 60).replace(/-+$/, '') : '';
+  const rand = nice ? Math.random().toString(36).slice(2, 8) : crypto.randomUUID();
+  const path = `${folder}/${nice ? nice + '-' : ''}${rand}.${extOf(file)}`;
   const contentType = (file.type || 'application/octet-stream').split(';')[0];
   const { error } = await sb.storage.from(bucket).upload(path, file, { contentType, upsert: false, cacheControl: '31536000' });
   if (error) throw new Error(uploadError(error));

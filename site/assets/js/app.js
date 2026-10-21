@@ -577,7 +577,7 @@ function bookWhen(b) {
   return BOOK_STATUS[b.status] + (d ? ` · ${b.status === 'preorder' ? 'out ' : 'expected '}${d}` : '');
 }
 function bookCover(b, cls = '') {
-  return b.cover ? `<img class="${cls}" src="${e(media(b.cover))}" alt="Cover of ${e(b.title)}" loading="lazy">`
+  return b.cover ? `<img class="${cls}" src="${e(media(b.cover))}" alt="${e(b.cover_alt || 'Cover of ' + b.title)}" loading="lazy">`
     : `<span class="book-cover-ph ${cls}"><small>${b.series_no ? 'Book ' + +b.series_no : 'Book'}</small><b>${e(b.title)}</b></span>`;
 }
 function bookCard(b) {
@@ -658,7 +658,7 @@ async function viewBook(slug) {
       ${player ? `<div class="player-box">${player}</div>` : ''}
       ${b.excerpt ? `<div class="excerpt prose" data-excerpt>${md(b.excerpt)}</div><button type="button" class="btn btn-ghost btn-sm" data-more-excerpt hidden>Read more of the preview</button>` : ''}
     </section>` : ''}
-    ${imgs?.length ? `<section class="book-photos"><h2>Behind the book</h2><div class="gallery">${imgs.map((im) => `<figure><a href="${e(media(im.file))}" target="_blank" rel="noopener"><img src="${e(media(im.file))}" alt="${e(im.caption || b.title)}" loading="lazy"></a>${im.caption ? `<figcaption>${e(im.caption)}</figcaption>` : ''}</figure>`).join('')}</div></section>` : ''}
+    ${imgs?.length ? `<section class="book-photos"><h2>Behind the book</h2><div class="gallery">${imgs.map((im) => `<figure><a href="${e(media(im.file))}" target="_blank" rel="noopener"><img src="${e(media(im.file))}" alt="${e(im.alt || im.caption || b.title)}" loading="lazy"></a>${im.caption ? `<figcaption>${e(im.caption)}</figcaption>` : ''}</figure>`).join('')}</div></section>` : ''}
     ${tagsHtml(b.tags)}
     ${b.status === 'available' && !next ? bookSignup(b) : b.status !== 'available' ? bookSignup(b) : ''}
   </div>
@@ -748,9 +748,12 @@ async function viewEpisodes(_, q) {
 }
 
 async function viewEpisode(slug) {
-  let { data: ep, error } = await publishedEpisodes(EP_FIELDS + ',transcript,clips,tags,seo_title,seo_description').eq('slug', slug).maybeSingle();
-  if (error) ({ data: ep, error } = await publishedEpisodes(EP_FIELDS + ',transcript,clips').eq('slug', slug).maybeSingle());   // database not updated yet
-  if (error) ({ data: ep } = await publishedEpisodes().eq('slug', slug).maybeSingle());   // database not updated yet
+  // Newest columns first; if the database is not fully updated yet, fall back step by step
+  let ep = null;
+  for (const extra of [',transcript,clips,tags,seo_title,seo_description,cover_alt', ',transcript,clips,tags,seo_title,seo_description', ',transcript,clips', '']) {
+    const res = await publishedEpisodes(EP_FIELDS + extra).eq('slug', slug).maybeSingle();
+    if (!res.error) { ep = res.data; break; }
+  }
   if (!ep) return notFound();
   const [guests, prev, next] = await Promise.all([
     guestsOf(ep.id),
@@ -760,7 +763,7 @@ async function viewEpisode(slug) {
   act(['✏️ Edit this episode', `#/episode/${ep.id}`], ['📣 Share on Facebook', fbShareUrl(), caption(ep.title, ep.excerpt || ep.shownotes)], ['➕ New episode', '#/episode/new']);
   render(ep.title, `
   <section class="page-hero ep-hero"><div class="wrap ep-head">
-    <div class="ep-head-cover">${ep.cover ? `<img src="${e(media(ep.cover))}" alt="">` : coverFallback(ep.number)}</div>
+    <div class="ep-head-cover">${ep.cover ? `<img src="${e(media(ep.cover))}" alt="${e(ep.cover_alt || ep.title)}">` : coverFallback(ep.number)}</div>
     <div>
       <div class="meta">${ep.season ? `<span>Season ${+ep.season}</span>` : ''}${ep.number ? `<span>Episode ${+ep.number}</span>` : ''}${ep.categories ? `<a class="tag" href="/episodes?category=${e(ep.categories.slug)}">${e(ep.categories.name)}</a>` : ''}</div>
       <h1>${e(ep.title)}</h1>
@@ -896,7 +899,7 @@ async function viewGuest(slug) {
   act(['✏️ Edit this guest', `#/guest/${g.id}`], [`🎙️ New episode with ${g.name}`, `#/episode/new?guest=${g.id}`], ['📣 Share on Facebook', fbShareUrl(), caption(`Meet ${g.name}${g.tagline ? ' — ' + g.tagline : ''}`, g.bio)], ['➕ New guest', '#/guest/new']);
   render(g.name, `
   <section class="page-hero"><div class="wrap guest-head">
-    <div class="guest-head-photo">${g.photo ? `<img src="${e(media(g.photo))}" alt="${e(g.name)}">` : `<span class="avatar avatar-xl">${e(g.name[0] || '?')}</span>`}</div>
+    <div class="guest-head-photo">${g.photo ? `<img src="${e(media(g.photo))}" alt="${e(g.photo_alt || g.name)}">` : `<span class="avatar avatar-xl">${e(g.name[0] || '?')}</span>`}</div>
     <div><p class="eyebrow"><a href="/guests">Guests</a></p><h1>${e(g.name)}</h1>${g.tagline ? `<p class="lead">${e(g.tagline)}</p>` : ''}${socialsHtml(soc, true)}
     ${shareBox('Share:', `Meet ${g.name}${g.tagline ? ' — ' + g.tagline : ''}`, g.bio)}</div>
   </div></section>
@@ -941,11 +944,11 @@ async function viewPost(slug) {
     <h1>${e(p.title)}</h1>${p.excerpt ? `<p class="lead">${e(p.excerpt)}</p>` : ''}
     ${shareBox('Share:', p.title, p.excerpt || p.body)}</div></section>
   <section class="section"><div class="wrap narrow">
-    ${p.image ? `<img class="post-hero-img" src="${e(media(p.image))}" alt="">` : ''}
+    ${p.image ? `<img class="post-hero-img" src="${e(media(p.image))}" alt="${e(p.image_alt || p.title)}">` : ''}
     <div class="prose">${md(p.body)}</div>
     ${linkBlock}
     ${tagsHtml(p.tags)}
-    ${imgs?.length ? `<div class="gallery">${imgs.map((im) => `<figure><a href="${e(media(im.file))}" target="_blank" rel="noopener"><img src="${e(media(im.file))}" alt="${e(im.caption)}" loading="lazy"></a>${im.caption ? `<figcaption>${e(im.caption)}</figcaption>` : ''}</figure>`).join('')}</div>` : ''}
+    ${imgs?.length ? `<div class="gallery">${imgs.map((im) => `<figure><a href="${e(media(im.file))}" target="_blank" rel="noopener"><img src="${e(media(im.file))}" alt="${e(im.alt || im.caption || p.title)}" loading="lazy"></a>${im.caption ? `<figcaption>${e(im.caption)}</figcaption>` : ''}</figure>`).join('')}</div>` : ''}
     <p class="mt"><a class="link-arrow" href="/news">← All news</a></p>
   </div>${prevNext('/news/', 'post', prev.data, next.data, true)}</section></article>`, p.excerpt || p.body, {
     title: p.seo_title, description: p.seo_description,

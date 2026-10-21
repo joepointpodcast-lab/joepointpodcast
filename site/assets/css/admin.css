@@ -262,3 +262,12 @@ audio { width: 100%; }
 .wa-list li > span { display: flex; flex-direction: column; min-width: 0; }
 .wa-list li { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
 .wa-btn { background: #25d366 !important; border-color: #25d366 !important; color: #08331a !important; white-space: nowrap; }
+
+/* ---------- Alt text, file names, focus keyphrase ---------- */
+.alt-field { margin-top: .75rem; }
+.file-note { display: block; margin-top: .4rem; color: var(--muted); font-size: .78rem; }
+.g-item input { margin-top: .3rem; }
+.kp-check { list-style: none; padding: .75rem .9rem; margin: 0; border: 1px solid var(--line); border-radius: .75rem; display: grid; gap: .3rem; font-size: .88rem; }
+.kp-check .kp-score { font-weight: 700; margin-bottom: .15rem; }
+.kp-check .todo { color: var(--muted); }
+.kp-check .kp-none { color: var(--muted); }
