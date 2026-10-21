@@ -102,3 +102,17 @@ export function mdLite(src) {
     return `<p>${lines.map(inline).join('<br>')}</p>`;
   }).join('\n');
 }
+
+/** A book of the series */
+export function ldBook({ origin, S, b, image }) {
+  const series = S.books_series || 'The books';
+  return clean({
+    '@context': 'https://schema.org', '@type': 'Book', name: b.title, alternativeHeadline: b.subtitle,
+    url: `${origin}/book/${b.slug}`, description: plain(b.seo_description || b.blurb || b.description, 300), image,
+    inLanguage: 'en', datePublished: b.release_date, keywords: (b.tags || []).join(', '),
+    author: { '@type': 'Person', name: S.book_author || S.host_name || 'Lamin', url: origin + '/about' },
+    isPartOf: b.series_no ? { '@type': 'BookSeries', name: series, url: origin + '/books' } : undefined,
+    position: b.series_no || undefined,
+    sameAs: [b.link_kindle, b.link_paperback, b.link_audiobook].filter((u) => /^https?:\/\//.test(u || '')),
+  });
+}

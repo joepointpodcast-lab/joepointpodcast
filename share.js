@@ -3,7 +3,7 @@
 // the right title, description, image, canonical address, structured data AND the text of the page
 // (show notes, transcript, bio, news text). Normal visitors get the normal website.
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../../site/assets/js/config.js';
-import { normTags, tagPath, canonical, plain, mdLite, ldSeries, ldEpisode, ldPerson, ldArticle, ldCrumbs } from '../../site/assets/js/seo.js';
+import { normTags, tagPath, canonical, plain, mdLite, ldSeries, ldEpisode, ldPerson, ldArticle, ldCrumbs, ldBook } from '../../site/assets/js/seo.js';
 
 // Works with both the legacy 'anon' key (eyJ…) and the new 'publishable' key (sb_publishable_…)
 const AUTH = SUPABASE_ANON_KEY.startsWith('eyJ') ? { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } : { apikey: SUPABASE_ANON_KEY };
@@ -125,6 +125,23 @@ export default async (request, context) => {
       const [st] = need(await q(`stories?select=title,name,body,photo&id=eq.${slug}&status=eq.approved`));
       if (!st) notFound();
       else { title = `${st.title} — ${st.name} — ${site}`; desc = plain(st.body); image = img(st.photo) || image; body = `<h1>${esc(st.title)}</h1><p>${esc(st.name)}</p>${mdLite(st.body)}`; }
+    } else if ((kind === 'books' || kind === 'book') && S.books_enabled !== '1') {
+      notFound();   // books switched off in the admin: they don't exist for the outside world
+    } else if (kind === 'books') {
+      const bs = (await q('books?select=title,slug,subtitle,blurb,series_no&status=neq.draft&order=series_no.asc.nullslast')) || [];
+      const t = S.books_title || 'The books';
+      title = `${t} — ${S.books_series || 'the story of ' + (S.host_name || 'Lamin')} | ${site}`; desc = plain(S.books_intro || bs.map((b) => b.title).join(', '));
+      ld = [ldCrumbs(origin, [[t, '/books']])];
+      body = `<h1>${esc(t)}</h1>${mdLite(S.books_intro)}${list(bs, (b) => `<li><a href="/book/${esc(b.slug)}">${b.series_no ? 'Book ' + +b.series_no + ': ' : ''}${esc(b.title)}</a>${b.subtitle ? ' — ' + esc(b.subtitle) : ''}${b.blurb ? `<br>${esc(b.blurb)}` : ''}</li>`)}`;
+    } else if (kind === 'book' && slug) {
+      const [b] = need(await q(`books?select=*&slug=eq.${s}&status=neq.draft`));
+      if (!b) notFound();
+      else {
+        title = b.seo_title || `${b.title}${b.subtitle ? ' — ' + b.subtitle : ''} | ${site}`; desc = b.seo_description || plain(b.blurb || b.description); image = img(b.cover) || image;
+        ld = [ldBook({ origin, S, b, image: img(b.cover) }), ldCrumbs(origin, [[S.books_title || 'The books', '/books'], [b.title, '/book/' + b.slug]])];
+        body = `<article><p><a href="/books">${esc(S.books_title || 'The books')}</a></p><h1>${esc(b.title)}</h1>${b.subtitle ? `<p>${esc(b.subtitle)}</p>` : ''}
+          ${b.blurb ? `<p>${esc(b.blurb)}</p>` : ''}${mdLite(b.description)}${b.excerpt ? `<h2>Sneak preview</h2>${mdLite(b.excerpt)}` : ''}${tagLinks(b.tags)}</article>`;
+      }
     } else if (kind === 'about') {
       const host = S.host_name || 'Lamin';
       title = `About ${host} — ${site}`; desc = plain(S.host_intro || S.host_bio); image = img(S.host_photo) || image;
@@ -162,5 +179,5 @@ ${image ? `<meta property="og:image" content="${esc(image)}">\n<meta name="twitt
 };
 
 export const config = {
-  path: ['/', '/about', '/episodes', '/episode/*', '/guests', '/guest/*', '/news', '/news/*', '/community', '/community/*', '/tag/*', '/get-involved', '/contact'],
+  path: ['/', '/about', '/episodes', '/episode/*', '/guests', '/guest/*', '/news', '/news/*', '/community', '/community/*', '/tag/*', '/get-involved', '/contact', '/books', '/book/*'],
 };

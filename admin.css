@@ -251,3 +251,14 @@ audio { width: 100%; }
 .vdev { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; }
 .mt { margin-top: 1.5rem; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---------- Books: on/off switch ---------- */
+.onoff { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem; border-width: 2px; }
+.onoff h2 { margin: 0 0 .25rem; }
+.onoff p { margin: 0; max-width: 46rem; }
+.onoff.is-on { border-color: var(--ok); }
+.onoff.is-off { border-color: var(--warn); border-style: dashed; }
+
+.wa-list li > span { display: flex; flex-direction: column; min-width: 0; }
+.wa-list li { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.wa-btn { background: #25d366 !important; border-color: #25d366 !important; color: #08331a !important; white-space: nowrap; }

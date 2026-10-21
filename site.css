@@ -478,3 +478,54 @@ p { margin: 0 0 1em; }
   .ab-right .ab-count, .ab-right .ab-home { display: none; }
   .ab-menu { position: fixed; left: 12px; right: 12px; top: auto; }
 }
+
+/* ---------- The books ---------- */
+.hidden-note { border: 1px dashed var(--accent); border-radius: 12px; padding: .7rem 1rem; margin-bottom: 1.25rem; font-size: .92rem; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.hidden-note a { color: inherit; }
+.book-grid { align-items: start; }
+.book-card { text-decoration: none; color: inherit; display: flex; flex-direction: column; }
+.book-cover { aspect-ratio: 2 / 3; overflow: hidden; border-radius: 10px 10px 0 0; background: var(--surface); }
+.book-cover img, .book-head-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.book-cover-ph { display: flex; flex-direction: column; justify-content: flex-end; gap: .35rem; width: 100%; height: 100%; padding: 1.25rem; box-sizing: border-box;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 70%, var(--bg)), var(--bg)); color: var(--ink); }
+.book-cover-ph small { text-transform: uppercase; letter-spacing: .12em; font-size: .72rem; opacity: .8; }
+.book-cover-ph b { font-family: var(--font-display, inherit); font-size: 1.35rem; line-height: 1.15; }
+.book-card .card-body h3 { margin: .15rem 0 .25rem; }
+.book-card .eyebrow { margin: 0; }
+.book-status { display: inline-block; margin-top: .5rem; padding: .25em .7em; border-radius: 999px; font-size: .8rem; font-weight: 600; border: 1px solid var(--line); }
+.book-preorder, .book-available { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.book-series { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1.5rem; }
+.book-blurb { margin: .75rem .25rem 0; color: var(--muted); font-size: .95rem; }
+.books-lead { max-width: 46rem; margin-bottom: 1.5rem; }
+.book-head { display: grid; grid-template-columns: minmax(180px, 300px) 1fr; gap: 2.5rem; align-items: start; }
+.book-head-cover { aspect-ratio: 2 / 3; border-radius: 12px; overflow: hidden; box-shadow: 0 24px 50px -20px rgba(0,0,0,.7); }
+.book-sub { font-size: 1.15rem; margin: .25rem 0 .5rem; opacity: .85; }
+.buy { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-top: 1.5rem; }
+.buy span { color: var(--muted); font-size: .9rem; width: 100%; }
+.sneak { margin: 3rem 0; padding: 1.75rem; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+.sneak h2 { margin-top: .25rem; }
+.excerpt { font-family: Georgia, 'Times New Roman', serif; font-size: 1.08rem; line-height: 1.8; position: relative; }
+.excerpt.clamped { max-height: 480px; overflow: hidden; }
+.excerpt.clamped::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 140px; background: linear-gradient(transparent, var(--surface)); }
+.book-photos { margin: 3rem 0; }
+.book-signup { margin: 3rem 0 1rem; padding: 1.75rem; border-radius: 18px; border: 1px solid var(--accent); text-align: center; }
+.book-signup h2 { margin-top: 0; }
+.signup-form { display: flex; flex-direction: column; align-items: center; gap: .75rem; max-width: 34rem; margin: 1rem auto 0; }
+.signup-row { display: grid; grid-template-columns: 1fr 1.4fr; gap: .75rem; width: 100%; text-align: left; }
+.signup-row label { display: flex; flex-direction: column; gap: .3rem; font-size: .85rem; font-weight: 600; }
+.signup-row small { font-weight: 400; color: var(--muted); }
+.signup-consent { display: flex; gap: .55rem; align-items: flex-start; text-align: left; font-size: .85rem; color: var(--muted); }
+.signup-consent input { margin-top: .2em; width: 18px; height: 18px; flex: none; accent-color: var(--primary); }
+.signup-form .btn .ico { width: 1.1em; height: 1.1em; }
+.signup-alt { margin: 1rem 0 0; font-size: .9rem; color: var(--muted); }
+.signup-alt a { color: inherit; font-weight: 600; }
+.signup-form input[type=text], .signup-form input[type=tel] { flex: 1; min-width: 0; padding: .75em .9em; border: 1px solid var(--line); border-radius: 999px; font: 400 1rem/1.4 var(--font); background: var(--bg); color: var(--ink); }
+.signup-form .hp { position: absolute; left: -9999px; }
+.signup-ok { font-weight: 600; margin: 1rem 0 0; }
+@media (max-width: 720px) {
+  .book-head { grid-template-columns: 1fr; gap: 1.5rem; }
+  .book-head-cover { max-width: 220px; }
+  .signup-row { grid-template-columns: 1fr; }
+  .signup-form .btn { width: 100%; justify-content: center; }
+  .sneak, .book-signup { padding: 1.25rem; }
+}

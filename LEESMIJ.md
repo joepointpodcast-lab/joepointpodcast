@@ -117,6 +117,14 @@ Geen SQL nodig: alleen de bestanden uploaden in GitHub en op **Commit changes** 
 - Niet geteld: Lamin zelf (ingelogd), Google en andere robots, niet-bestaande pagina's.
 - Privacy: geen cookies, geen namen, geen IP-adressen → geen cookiebanner nodig. Cijfers ouder dan 2 jaar worden automatisch opgeruimd.
 
+## Update: de boeken (staat standaard UIT)
+
+SQL: `supabase/update-books.sql` (of alles in één keer: `supabase/update-seo-stats-books.sql`). Daarna de bestanden uploaden en committen.
+
+- Beheer → **Books**: boeken toevoegen (titel, ondertitel, korte en lange tekst, cover, verschijningsdatum, nummer in de serie), **sneak preview** (stuk tekst + audiofragment of link), foto's "Behind the book", kooplinks (Amazon Kindle/paperback, audiobook, Spotify, andere winkel), onderwerpen + Google-tekst.
+- Bovenaan Beheer → Books de **aan/uit-knop**. Zolang die UIT staat, ziet niemand iets: geen menu-item, niets op de homepage, niet in Google, en ook de database geeft niets prijs. Lamin ziet zelf een 🔒 Books-voorbeeld als hij ingelogd is.
+- Bezoekers kunnen hun **WhatsApp-nummer** achterlaten (met landcode en vinkje voor toestemming). De lijst staat in Beheer → Books: per persoon een groene **💬 WhatsApp**-knop met een kant-en-klaar bericht, plus "alle nummers kopiëren" en een download voor je contacten. Optioneel: link naar een WhatsApp-kanaal, dan kunnen mensen ook volgen zonder nummer.
+
 ## Wat Lamin zelf kan (via /admin)
 
 - **Afleveringen**: titel, samenvatting, show notes, link naar Spotify/YouTube/Apple/SoundCloud (de speler verschijnt vanzelf), cover, gasten en categorie. Afleveringen kunnen ook ingepland worden.

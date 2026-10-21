@@ -23,6 +23,8 @@ export default async (request) => {
     q('stories?select=id,approved_at&status=eq.approved'),
     q(`episodes?select=tags&${PUB}`), q('guests?select=tags'), q(`posts?select=tags&${PUB}`),
   ]);
+  // Books only when switched on in the admin (otherwise the database returns none anyway)
+  const books = await q('books?select=slug,updated_at&status=neq.draft');
   const day = (d) => (d ? String(d).slice(0, 10) : '');
   const urls = [
     ['/', day(eps[0]?.published_at), '1.0'], ['/episodes', day(eps[0]?.published_at), '0.9'], ['/about', '', '0.7'],
@@ -31,6 +33,7 @@ export default async (request) => {
     ...guests.map((r) => [`/guest/${r.slug}`, day(r.created_at), '0.6']),
     ...posts.map((r) => [`/news/${r.slug}`, day(r.published_at), '0.5']),
     ...stories.map((r) => [`/community/${r.id}`, day(r.approved_at), '0.4']),
+    ...(books.length ? [['/books', '', '0.8'], ...books.map((r) => [`/book/${r.slug}`, day(r.updated_at), '0.8'])] : []),
     ...[...new Set([...t1, ...t2, ...t3].flatMap((r) => r.tags || []))].map((t) => [tagPath(t), '', '0.5']),
   ];
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
